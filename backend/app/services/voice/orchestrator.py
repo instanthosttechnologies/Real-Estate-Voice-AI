@@ -109,6 +109,13 @@ class VoiceSessionOrchestrator:
             "4. Human handoff creates a priority callback ticket; never claim an active phone transfer is ringing.\n"
             "5. Speak concisely in a natural, friendly tone suitable for voice conversations."
         )
+        if getattr(settings, "DRY_RUN_TEST_MODE", False):
+            preamble += (
+                "\n\nDRY-RUN PREFLIGHT TEST MODE:\n"
+                "- System is operating in preflight test mode.\n"
+                "- Do NOT claim that a site visit or property reservation is permanently confirmed or locked into production.\n"
+                "- Clearly inform the customer that the site visit schedule is a provisional preflight test verification."
+            )
         if returning_context:
             preamble += f"\n\nRETURNING CUSTOMER CONTEXT:\n{returning_context}"
         return preamble

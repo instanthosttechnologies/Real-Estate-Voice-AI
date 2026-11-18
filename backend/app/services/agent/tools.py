@@ -377,11 +377,17 @@ def tool_book_site_visit(db: Session, args: BookSiteVisitToolInput) -> AgentTool
             customer_notes=args.customer_notes,
         )
         visit_resp = book_site_visit(db, book_input)
+        from app.core.config import settings
+        guidance = (
+            "Dry-run test mode is active: clearly inform the customer that this appointment is provisionally scheduled for testing purposes and is not permanently confirmed in production."
+            if getattr(settings, "DRY_RUN_TEST_MODE", False)
+            else "Confirm the appointment with the customer using the exact date, time, and project name in the response."
+        )
         return AgentToolResponse(
             tool_name="book_site_visit",
             success=True,
             data=visit_resp.model_dump(),
-            anti_hallucination_guidance="Confirm the appointment with the customer using the exact date, time, and project name in the response."
+            anti_hallucination_guidance=guidance
         )
     except ValueError as exc:
         return AgentToolResponse(
