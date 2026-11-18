@@ -1,0 +1,492 @@
+import uuid
+from datetime import datetime, timezone
+from decimal import Decimal
+from typing import Any, Dict, List, Optional
+from sqlalchemy.orm import Session
+from sqlalchemy import select
+
+from app.models.lead import Lead
+from app.models.customer import Customer
+from app.models.pricing import Pricing
+from app.models.audit_log import AuditLog
+from app.schemas.agent_tools import (
+    AgentToolResponse,
+    BookSiteVisitToolInput,
+    CancelSiteVisitToolInput,
+    CheckPropertyAvailabilityToolInput,
+    CheckVisitSlotsToolInput,
+    ComparePropertiesToolInput,
+    CreateLeadToolInput,
+    ExtractRequirementsToolInput,
+    GetPropertyDetailsToolInput,
+    GetPropertyPriceToolInput,
+    RescheduleSiteVisitToolInput,
+    SearchPropertiesToolInput,
+    TransferToHumanToolInput,
+    UpdateLeadToolInput,
+    CalculateLeadPriorityToolInput,
+)
+from app.services.real_estate.search import PropertySearchCriteria, search_properties
+from app.services.real_estate.matcher import CustomerPreferences, intelligent_property_search
+from app.services.real_estate.details import get_property_unit_details
+from app.services.real_estate.availability import check_unit_availability
+from app.services.real_estate.requirements import extract_requirements_from_text
+from app.services.real_estate.priority import calculate_lead_priority
+from app.services.real_estate.leads import (
+    CreateLeadInput,
+    UpdateLeadInput,
+    create_customer_lead,
+    update_customer_lead,
+)
+from app.services.real_estate.site_visits import (
+    BookVisitInput,
+    RescheduleVisitInput,
+    book_site_visit,
+    cancel_site_visit,
+    get_available_visit_slots,
+    reschedule_site_visit,
+)
+
+
+def tool_search_properties(db: Session, args: SearchPropertiesToolInput) -> AgentToolResponse:
+    criteria = PropertySearchCriteria(
+        city=args.city,
+        location_query=args.location_query,
+        company_name=args.company_name,
+        project_name=args.project_name,
+        property_type=args.property_type,
+        configuration_type=args.configuration_type,
+        min_budget=args.min_budget,
+        max_budget=args.max_budget,
+        currency=args.currency,
+        min_carpet_area=args.min_carpet_area,
+        max_carpet_area=args.max_carpet_area,
+        required_amenities=args.required_amenities,
+        availability_status=args.availability_status,
+        limit=args.limit,
+    )
+    prefs = CustomerPreferences(
+        preferred_city=args.city,
+        preferred_location=args.location_query,
+        preferred_config=args.configuration_type,
+        budget_min=args.min_budget,
+        budget_max=args.max_budget,
+        preferred_currency=args.currency,
+        desired_amenities=args.required_amenities or [],
+    )
+    search_data = intelligent_property_search(db, criteria, prefs)
+
+    guidance = (
+        "Quote only properties present in 'exact_matches' or 'recommended_alternatives'. "
+        "If total_exact_matches > 0, present the exact matches first. "
+        "If total_exact_matches is 0 and recommended_alternatives exist, do NOT present them as exact matches; "
+        "politely inform the customer that no exact match was found and ask if they would like to review the suggested alternatives. "
+        "Never invent property details, prices, or amenities."
+    )
+
+    return AgentToolResponse(
+        tool_name="search_properties",
+        success=True,
+        data=search_data,
+        anti_hallucination_guidance=guidance,
+    )
+
+
+def tool_compare_properties(db: Session, args: ComparePropertiesToolInput) -> AgentToolResponse:
+    """
+    Compares 2 to 5 property units side-by-side using authentic database records.
+    Evaluates price, price per sqft, configuration, size, floor, facing, availability,
+    and calculates common vs unique amenities.
+    """
+    unit_ids = args.unit_ids
+    if len(unit_ids) < 2:
+        return AgentToolResponse(
+            tool_name="compare_properties",
+            success=False,
+            error_message="At least 2 property unit IDs are required for a side-by-side comparison.",
+        )
+
+    comparison_items: List[Dict[str, Any]] = []
+    missing_ids: List[str] = []
+
+    for uid in unit_ids:
+        detail = get_property_unit_details(db, uid)
+        if not detail:
+            missing_ids.append(str(uid))
+            continue
+
+        base_price = detail.current_pricing.base_price if detail.current_pricing else Decimal("0")
+        total_price = detail.current_pricing.total_estimated_price if detail.current_pricing else Decimal("0")
+        currency = detail.current_pricing.currency if detail.current_pricing else "USD"
+        sqft = detail.carpet_area_sqft or Decimal("1")
+        price_per_sqft = round(base_price / sqft, 2) if sqft > 0 else Decimal("0")
+
+        comparison_items.append({
+            "unit_id": str(detail.unit_id),
+            "unit_number": detail.unit_number,
+            "property_name": detail.property_name,
+            "project_name": detail.project_name,
+            "company_name": detail.company_name,
+            "city": detail.city,
+            "address": detail.address_line_1,
+            "configuration_type": detail.configuration_type,
+            "carpet_area_sqft": float(detail.carpet_area_sqft),
+            "floor_number": detail.floor_number,
+            "facing": detail.facing,
+            "balcony_count": detail.balcony_count,
+            "base_price": float(base_price),
+            "total_estimated_price": float(total_price),
+            "currency": currency,
+            "price_per_sqft": float(price_per_sqft),
+            "availability_status": detail.current_availability or "unknown",
+            "amenities": detail.amenities,
+        })
+
+    if len(comparison_items) < 2:
+        return AgentToolResponse(
+            tool_name="compare_properties",
+            success=False,
+            error_message=f"Could not find at least 2 valid units to compare in inventory. Missing units: {missing_ids}",
+        )
+
+    # Compute comparative metrics
+    sorted_by_price = sorted(comparison_items, key=lambda x: x["base_price"])
+    sorted_by_size = sorted(comparison_items, key=lambda x: x["carpet_area_sqft"], reverse=True)
+    sorted_by_sqft_price = sorted(comparison_items, key=lambda x: x["price_per_sqft"])
+
+    # Common vs unique amenities
+    all_amenity_sets = [set(item["amenities"]) for item in comparison_items]
+    common_amenities = list(set.intersection(*all_amenity_sets)) if all_amenity_sets else []
+
+    unique_amenities: Dict[str, List[str]] = {}
+    for item in comparison_items:
+        other_sets = [set(other["amenities"]) for other in comparison_items if other["unit_id"] != item["unit_id"]]
+        other_union = set.union(*other_sets) if other_sets else set()
+        item_unique = [a for a in item["amenities"] if a not in other_union]
+        unique_amenities[item["unit_number"]] = item_unique
+
+    price_diff = sorted_by_price[-1]["base_price"] - sorted_by_price[0]["base_price"]
+    currency = comparison_items[0]["currency"]
+
+    summary_text = (
+        f"Comparing {len(comparison_items)} properties: "
+        f"Unit {sorted_by_price[0]['unit_number']} ({sorted_by_price[0]['property_name']}) is the lowest priced option at "
+        f"{currency} {sorted_by_price[0]['base_price']:,.0f} ({currency} {sorted_by_price[0]['price_per_sqft']:.0f}/sqft). "
+        f"Unit {sorted_by_size[0]['unit_number']} offers the largest layout at {sorted_by_size[0]['carpet_area_sqft']} sqft. "
+        f"Price difference across units is {currency} {price_diff:,.0f}."
+    )
+
+    data = {
+        "total_compared": len(comparison_items),
+        "total_units_compared": len(comparison_items),
+        "comparison_items": comparison_items,
+        "summary_metrics": {
+            "cheapest_unit": sorted_by_price[0]["unit_number"],
+            "cheapest_price": sorted_by_price[0]["base_price"],
+            "most_expensive_unit": sorted_by_price[-1]["unit_number"],
+            "most_expensive_price": sorted_by_price[-1]["base_price"],
+            "largest_unit": sorted_by_size[0]["unit_number"],
+            "largest_carpet_area_sqft": sorted_by_size[0]["carpet_area_sqft"],
+            "best_value_per_sqft": sorted_by_sqft_price[0]["unit_number"],
+            "common_amenities": common_amenities,
+            "unique_amenities_by_unit": unique_amenities,
+            "price_delta": price_diff,
+            "currency": currency,
+        },
+        "comparison_summary": summary_text,
+        "missing_unit_ids": missing_ids,
+    }
+
+    return AgentToolResponse(
+        tool_name="compare_properties",
+        success=True,
+        data=data,
+        anti_hallucination_guidance=(
+            "Compare only the exact values provided in 'comparison_items' and 'summary_metrics'. "
+            "Never invent missing features, prices, floor plans, or amenities not present in this dataset."
+        ),
+    )
+
+
+def tool_get_property_details(db: Session, args: GetPropertyDetailsToolInput) -> AgentToolResponse:
+    details = get_property_unit_details(
+        db=db,
+        unit_id=args.unit_id,
+        include_pricing_history=args.include_pricing_history
+    )
+    if not details:
+        return AgentToolResponse(
+            tool_name="get_property_details",
+            success=False,
+            error_message=f"Property unit {args.unit_id} not found in inventory records.",
+        )
+    return AgentToolResponse(
+        tool_name="get_property_details",
+        success=True,
+        data=details.model_dump(),
+        anti_hallucination_guidance="Describe only the verified attributes, dimensions, and amenities returned in data."
+    )
+
+
+def tool_get_property_price(db: Session, args: GetPropertyPriceToolInput) -> AgentToolResponse:
+    active_price = db.execute(
+        select(Pricing).where(Pricing.unit_id == args.unit_id, Pricing.is_active == True)
+    ).scalar_one_or_none()
+
+    if not active_price:
+        return AgentToolResponse(
+            tool_name="get_property_price",
+            success=False,
+            error_message="No verified active price found for this unit. State that pricing is currently under review by management. Never estimate or invent a price.",
+        )
+
+    return AgentToolResponse(
+        tool_name="get_property_price",
+        success=True,
+        data={
+            "unit_id": str(args.unit_id),
+            "base_price": float(active_price.base_price),
+            "currency": active_price.currency,
+            "maintenance_charge_monthly": float(active_price.maintenance_charge_monthly),
+            "parking_charge": float(active_price.parking_charge),
+            "estimated_tax": float(active_price.estimated_tax),
+            "total_estimated_price": float(active_price.total_estimated_price),
+            "is_verified_active": True,
+            "valid_from": active_price.valid_from.isoformat(),
+        },
+        anti_hallucination_guidance="Quote the exact numbers returned above. Do not promise unverified discounts."
+    )
+
+
+def tool_check_property_availability(db: Session, args: CheckPropertyAvailabilityToolInput) -> AgentToolResponse:
+    report = check_unit_availability(db=db, unit_id=args.unit_id)
+    return AgentToolResponse(
+        tool_name="check_property_availability",
+        success=True,
+        data=report.model_dump(),
+        anti_hallucination_guidance="Never assume availability. If status is not 'available', inform the customer honestly that the unit is not open for booking."
+    )
+
+
+def tool_extract_requirements(db: Session, args: ExtractRequirementsToolInput) -> AgentToolResponse:
+    extracted = extract_requirements_from_text(
+        user_utterance=args.customer_utterance,
+        existing_requirements=args.existing_requirements
+    )
+    return AgentToolResponse(
+        tool_name="extract_requirements",
+        success=True,
+        data=extracted.model_dump(),
+        anti_hallucination_guidance="If 'missing_fields' is non-empty, use 'clarification_prompt' to ask the customer for the missing criteria before concluding the search."
+    )
+
+
+def tool_create_lead(db: Session, args: CreateLeadToolInput) -> AgentToolResponse:
+    lead_input = CreateLeadInput(
+        full_name=args.full_name,
+        phone=args.phone,
+        email=args.email,
+        project_id=args.project_id,
+        requirements=args.requirements,
+        initial_notes=args.notes,
+    )
+    created_lead = create_customer_lead(db, lead_input)
+    return AgentToolResponse(
+        tool_name="create_lead",
+        success=True,
+        data=created_lead.model_dump(),
+        anti_hallucination_guidance="Customer profile and qualified lead successfully created in CRM database."
+    )
+
+
+def tool_update_lead(db: Session, args: UpdateLeadToolInput) -> AgentToolResponse:
+    try:
+        update_input = UpdateLeadInput(
+            lead_id=args.lead_id,
+            preferred_config=args.preferred_config,
+            budget_min=args.budget_min,
+            budget_max=args.budget_max,
+            preferred_location=args.preferred_location,
+            qualification_status=args.qualification_status,
+            lead_priority=args.lead_priority,
+            append_notes=args.append_notes,
+        )
+        updated = update_customer_lead(db, update_input)
+        return AgentToolResponse(
+            tool_name="update_lead",
+            success=True,
+            data=updated.model_dump(),
+        )
+    except ValueError as exc:
+        return AgentToolResponse(
+            tool_name="update_lead",
+            success=False,
+            error_message=str(exc)
+        )
+
+
+def tool_calculate_lead_priority(db: Session, args: CalculateLeadPriorityToolInput) -> AgentToolResponse:
+    evaluation = calculate_lead_priority(
+        requirements=args.requirements,
+        has_scheduled_visit=args.has_scheduled_visit,
+        is_preapproved_loan_or_cash=args.is_preapproved_loan_or_cash,
+    )
+    return AgentToolResponse(
+        tool_name="calculate_lead_priority",
+        success=True,
+        data=evaluation.model_dump(),
+    )
+
+
+def tool_check_visit_slots(db: Session, args: CheckVisitSlotsToolInput) -> AgentToolResponse:
+    try:
+        slots_resp = get_available_visit_slots(
+            db=db,
+            project_id=args.project_id,
+            target_date=args.target_date
+        )
+        available_only = [s.model_dump() for s in slots_resp.slots if s.is_available]
+        return AgentToolResponse(
+            tool_name="check_visit_slots",
+            success=True,
+            data={
+                "project_id": str(args.project_id),
+                "target_date": args.target_date.isoformat(),
+                "available_slots": available_only,
+                "total_available_slots": len(available_only),
+            },
+            anti_hallucination_guidance="Offer only the time slots listed in 'available_slots'. Do not offer time slots outside operating hours (9 AM - 6 PM)."
+        )
+    except ValueError as exc:
+        return AgentToolResponse(
+            tool_name="check_visit_slots",
+            success=False,
+            error_message=str(exc)
+        )
+
+
+def tool_book_site_visit(db: Session, args: BookSiteVisitToolInput) -> AgentToolResponse:
+    try:
+        book_input = BookVisitInput(
+            customer_id=args.customer_id,
+            project_id=args.project_id,
+            unit_id=args.unit_id,
+            scheduled_start=args.scheduled_start,
+            scheduled_end=args.scheduled_end,
+            assigned_agent_name=args.assigned_agent_name,
+            customer_notes=args.customer_notes,
+        )
+        visit_resp = book_site_visit(db, book_input)
+        return AgentToolResponse(
+            tool_name="book_site_visit",
+            success=True,
+            data=visit_resp.model_dump(),
+            anti_hallucination_guidance="Confirm the appointment with the customer using the exact date, time, and project name in the response."
+        )
+    except ValueError as exc:
+        return AgentToolResponse(
+            tool_name="book_site_visit",
+            success=False,
+            error_message=str(exc)
+        )
+
+
+def tool_reschedule_site_visit(db: Session, args: RescheduleSiteVisitToolInput) -> AgentToolResponse:
+    try:
+        reschedule_input = RescheduleVisitInput(
+            visit_id=args.visit_id,
+            new_scheduled_start=args.new_scheduled_start,
+            new_scheduled_end=args.new_scheduled_end,
+            reschedule_reason=args.reschedule_reason,
+        )
+        updated_visit = reschedule_site_visit(db, reschedule_input)
+        return AgentToolResponse(
+            tool_name="reschedule_site_visit",
+            success=True,
+            data=updated_visit.model_dump(),
+        )
+    except ValueError as exc:
+        return AgentToolResponse(
+            tool_name="reschedule_site_visit",
+            success=False,
+            error_message=str(exc)
+        )
+
+
+def tool_cancel_site_visit(db: Session, args: CancelSiteVisitToolInput) -> AgentToolResponse:
+    try:
+        cancelled_visit = cancel_site_visit(
+            db=db,
+            visit_id=args.visit_id,
+            cancellation_reason=args.cancellation_reason
+        )
+        return AgentToolResponse(
+            tool_name="cancel_site_visit",
+            success=True,
+            data=cancelled_visit.model_dump(),
+        )
+    except ValueError as exc:
+        return AgentToolResponse(
+            tool_name="cancel_site_visit",
+            success=False,
+            error_message=str(exc)
+        )
+
+
+def tool_transfer_to_human(db: Session, args: TransferToHumanToolInput) -> AgentToolResponse:
+    """
+    Creates an internal handoff ticket and queues an escalation for human advisor follow-up.
+    Note: This logs a handoff request queue ticket; it does NOT execute an automated telephony
+    warm transfer / SIP trunk bridge, as external telephony integration is not present.
+    """
+    handoff_ticket_id = f"HANDOFF-{uuid.uuid4().hex[:8].upper()}"
+    now = datetime.now(timezone.utc)
+
+    # If customer identified, elevate lead priority to urgent
+    if args.customer_id:
+        latest_lead = db.execute(
+            select(Lead).where(Lead.customer_id == args.customer_id).order_by(Lead.created_at.desc())
+        ).scalars().first()
+        if latest_lead:
+            latest_lead.lead_priority = "urgent"
+            latest_lead.notes = (latest_lead.notes or "") + f"\n[{now.isoformat()}] Human handoff request queued: {args.reason} ({args.department})"
+            db.commit()
+
+    # Record immutable audit event
+    db.add(AuditLog(
+        user_role="voice_agent",
+        action="HUMAN_HANDOFF_REQUEST_QUEUED",
+        resource_type="customer",
+        resource_id=str(args.customer_id or args.customer_phone or "anonymous"),
+        meta_info={
+            "ticket_id": handoff_ticket_id,
+            "reason": args.reason,
+            "department": args.department,
+            "summary": args.conversation_summary,
+            "telephony_bridged": False,
+            "handover_type": "request_queue",
+        },
+        timestamp=now,
+    ))
+    db.commit()
+
+    return AgentToolResponse(
+        tool_name="transfer_to_human",
+        success=True,
+        data={
+            "handoff_ticket_id": handoff_ticket_id,
+            "status": "handoff_request_queued",
+            "telephony_bridged": False,
+            "department": args.department,
+            "customer_message": (
+                f"I have logged a priority handoff request with our {args.department} team "
+                f"(Ticket #{handoff_ticket_id}). A human property advisor has been notified "
+                "and will contact you directly."
+            ),
+        },
+        anti_hallucination_guidance=(
+            "Inform the customer that their handoff request has been logged with a ticket number "
+            f"({handoff_ticket_id}) and a property specialist will follow up. Never state or promise "
+            "that a live telephone transfer is ringing or currently connected."
+        )
+    )
