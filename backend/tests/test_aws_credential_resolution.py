@@ -48,7 +48,7 @@ def test_missing_credentials_rejection():
     with patch.object(settings, "AWS_ACCESS_KEY_ID", None):
         with patch.object(settings, "AWS_SECRET_ACCESS_KEY", None):
             with patch.object(settings, "AWS_PROFILE", None):
-                with patch.dict(os.environ, {}, clear=True):
+                with patch.dict(os.environ, {"AWS_PROFILE": "", "AWS_ACCESS_KEY_ID": "", "AWS_SECRET_ACCESS_KEY": "", "AWS_SESSION_TOKEN": ""}):
                     resolved = resolve_aws_credentials(botocore_session=mock_b_session)
                     assert resolved is None
 
@@ -59,13 +59,15 @@ def test_missing_credentials_rejection():
                     assert transport.get_credentials() is None
 
                     with pytest.raises(RuntimeError) as exc_info:
-                        asyncio.run(
-                            transport.open_stream(
-                                model_id="amazon.nova-2-5-sonic",
-                                region="ap-northeast-1",
-                                session_id="test_missing_creds",
-                            )
+                        coro = transport.open_stream(
+                            model_id="amazon.nova-2-5-sonic",
+                            region="ap-northeast-1",
+                            session_id="test_missing_creds",
                         )
+                        try:
+                            coro.send(None)
+                        except StopIteration:
+                            pass
                     assert "AWS credentials not configured" in str(exc_info.value)
 
 
@@ -167,7 +169,11 @@ def test_driver_inherits_configured_profile():
             driver = AmazonNovaSonicDriver()
             assert driver._profile_name == "realestate-nova"
             assert driver._region_name == "ap-northeast-1"
-            assert isinstance(driver._transport, BedrockCRTStreamTransport)
+            try:
+                from app.services.voice.sdk_transport import BedrockSDKStreamTransport
+                assert isinstance(driver._transport, (BedrockCRTStreamTransport, BedrockSDKStreamTransport))
+            except ImportError:
+                assert isinstance(driver._transport, BedrockCRTStreamTransport)
             assert driver._transport.profile_name == "realestate-nova"
 
 

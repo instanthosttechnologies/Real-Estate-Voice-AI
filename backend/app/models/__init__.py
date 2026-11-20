@@ -13,6 +13,7 @@ from app.models.conversation import Conversation
 from app.models.audit_log import AuditLog
 from app.models.refresh_token import RefreshToken
 from app.models.ingestion import IngestionBatch, IngestionRecord
+from app.models.dataset import DynamicDataset, DynamicDatasetRecord
 
 __all__ = [
     "Base",
@@ -34,4 +35,6 @@ __all__ = [
     "RefreshToken",
     "IngestionBatch",
     "IngestionRecord",
+    "DynamicDataset",
+    "DynamicDatasetRecord",
 ]

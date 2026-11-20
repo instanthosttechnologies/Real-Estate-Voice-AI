@@ -23,17 +23,28 @@ class ExtractedCustomerRequirements(BaseModel):
 def parse_numeric_budget(text: str) -> Optional[Decimal]:
     """
     Parses currency amounts supporting both international (M, k, thousand, million)
-    and Indian numbering systems (Crore/Cr, Lakh/Lacs).
+    and Indian numbering systems (Crore/Cr, Lakh/Lacs), with word-number support.
     Guards against matching words like 'months'.
     """
     text = text.replace(",", "").strip().lower()
+
+    word_number_map = {
+        "one": "1", "two": "2", "three": "3", "four": "4", "five": "5",
+        "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10",
+        "twenty": "20", "twenty-five": "25", "thirty": "30", "thirty-five": "35",
+        "forty": "40", "forty-five": "45", "fifty": "50", "fifty-five": "55",
+        "sixty": "60", "sixty-five": "65", "seventy": "70", "seventy-five": "75",
+        "eighty": "80", "eighty-five": "85", "ninety": "90", "hundred": "100",
+    }
+    for word, num in word_number_map.items():
+        text = re.sub(rf"\b{word}\b", num, text)
 
     # Indian Crore match: e.g. 1.5 cr, 2 crore, 3 crores
     cr_match = re.search(r"\b(\d+(?:\.\d+)?)\s*(?:cr|crore|crores)\b", text)
     if cr_match:
         return Decimal(cr_match.group(1)) * Decimal(10_000_000)
 
-    # Indian Lakh match: e.g. 75 lakh, 50 lakhs, 60 lac, 80 lacs
+    # Indian Lakh match: e.g. 75 lakh, 50 lakhs, 60 lac, 80 lacs, 80 lakhs
     lakh_match = re.search(r"\b(\d+(?:\.\d+)?)\s*(?:lakh|lakhs|lac|lacs)\b", text)
     if lakh_match:
         return Decimal(lakh_match.group(1)) * Decimal(100_000)
@@ -116,10 +127,21 @@ def extract_requirements_from_text(
     elif any(w in text for w in ["buy", "purchase", "invest", "own", "ownership"]):
         req.intent_type = "buy"
 
-    # 2. Configuration / BHK
-    bhk_match = re.search(r"\b(\d)\s*(?:bhk|bed(?:room)?s?)\b", text)
+    # 2. Configuration / BHK (supports digits and word forms: "two BHK", "two bedroom", "2BHK flat", "three BHK", "3BHK")
+    word_to_digit = {
+        "one": "1", "single": "1", "1": "1",
+        "two": "2", "double": "2", "2": "2",
+        "three": "3", "triple": "3", "3": "3",
+        "four": "4", "4": "4",
+        "five": "5", "5": "5",
+    }
+    bhk_match = re.search(
+        r"\b(one|two|three|four|five|\d)\s*(?:[- ]?bhk(?:[- ]?flat)?|[- ]?bed(?:room)?s?(?:[- ]?flat)?)\b",
+        text,
+    )
     if bhk_match:
-        req.configuration_type = f"{bhk_match.group(1)}BHK"
+        digit = word_to_digit.get(bhk_match.group(1), bhk_match.group(1))
+        req.configuration_type = f"{digit}BHK"
     elif "studio" in text:
         req.configuration_type = "Studio"
     elif "penthouse" in text:

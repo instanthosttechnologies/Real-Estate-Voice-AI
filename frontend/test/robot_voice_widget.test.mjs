@@ -236,6 +236,122 @@ runTest("Widget provides responsive classes for both desktop and mobile viewport
   assert(widgetSrc.includes("backdrop-blur-xl"), "Widget must employ premium frosted glass backdrop styling");
 });
 
+// ----------------------------------------------------------------------------
+// TEST 11: Microphone Audio Capture & 16-bit PCM Conversion
+// ----------------------------------------------------------------------------
+runTest("VoiceClient converts float32 microphone stream to 16-bit linear PCM", () => {
+  const voiceClientSrc = fs.readFileSync(path.join(rootDir, "src/lib/voice-client.ts"), "utf8");
+
+  assert(voiceClientSrc.includes("createMediaStreamSource"), "Must capture microphone stream via createMediaStreamSource");
+  assert(voiceClientSrc.includes("createScriptProcessor"), "Must create script processor for audio capture buffer");
+  assert(voiceClientSrc.includes("Int16Array"), "Must convert audio to 16-bit PCM Int16Array");
+  assert(voiceClientSrc.includes("0x8000"), "Must scale negative float32 samples to 16-bit integer boundary");
+  assert(voiceClientSrc.includes("0x7fff"), "Must scale positive float32 samples to 16-bit integer boundary");
+  assert(voiceClientSrc.includes("this.ws.send(pcm16.buffer)"), "Must transmit binary PCM buffer over WebSocket");
+});
+
+// ----------------------------------------------------------------------------
+// TEST 12: Web Audio Context Activation and Browser Playback Resilience
+// ----------------------------------------------------------------------------
+runTest("VoiceClient unlocks and resumes AudioContext upon deliberate user interaction and playback", () => {
+  const voiceClientSrc = fs.readFileSync(path.join(rootDir, "src/lib/voice-client.ts"), "utf8");
+
+  assert(voiceClientSrc.includes("resume()"), "VoiceClient must call resume() on suspended AudioContext");
+  assert(voiceClientSrc.includes("this.audioContext.state === \"suspended\""), "Must guard against browser suspended audio context state");
+  assert(voiceClientSrc.includes("createBuffer(1, float32Array.length, 24000)"), "Must decode 24kHz incoming PCM into native Web Audio buffer");
+  assert(voiceClientSrc.includes("createBufferSource"), "Must spawn Web Audio buffer source for continuous speaker playback");
+});
+
+// ----------------------------------------------------------------------------
+// TEST 13: Conversational State Transitions (LISTENING -> THINKING -> SPEAKING)
+// ----------------------------------------------------------------------------
+runTest("VoiceClient transitions states accurately upon receiving user and assistant speech events", () => {
+  const voiceClientSrc = fs.readFileSync(path.join(rootDir, "src/lib/voice-client.ts"), "utf8");
+
+  assert(voiceClientSrc.includes('msg.role === "assistant"'), "Assistant transcript delta must switch robot state to speaking");
+  assert(voiceClientSrc.includes('this.setState("speaking")'), "Must trigger speaking state upon assistant response");
+  assert(voiceClientSrc.includes('msg.role === "user"'), "User speech utterance must switch robot state to thinking");
+  assert(voiceClientSrc.includes('this.setState("thinking")'), "Must trigger thinking state upon customer utterance");
+  assert(voiceClientSrc.includes('this.setState("listening")'), "Must return to listening state when audio playback finishes");
+});
+
+// ----------------------------------------------------------------------------
+// TEST 14: Comprehensive Audio Teardown and Hardware Release
+// ----------------------------------------------------------------------------
+runTest("VoiceClient teardownAudio safely releases microphone stream and Web Audio nodes", () => {
+  const voiceClientSrc = fs.readFileSync(path.join(rootDir, "src/lib/voice-client.ts"), "utf8");
+
+  assert(voiceClientSrc.includes("this.processor.disconnect()"), "Must disconnect ScriptProcessorNode on teardown");
+  assert(voiceClientSrc.includes("this.mediaStream.getTracks().forEach((t) => t.stop())"), "Must stop all media tracks on teardown");
+  assert(voiceClientSrc.includes("this.audioContext.close()"), "Must close AudioContext on teardown");
+  assert(voiceClientSrc.includes("this.audioContext = null"), "Must release AudioContext reference to prevent memory leaks");
+  assert(voiceClientSrc.includes("this.isConnected = false"), "Must reset isConnected flag on teardown");
+});
+
+// ----------------------------------------------------------------------------
+// TEST 15: 3D Expressive Robot Geometry & Joint Hierarchy
+// ----------------------------------------------------------------------------
+runTest("Expressive 3D Robot implements full head, neck, movable mouth, expressive eyes, dual arms, and upper body chassis", () => {
+  const avatar3dSrc = fs.readFileSync(path.join(rootDir, "src/components/RobotAvatar3D.tsx"), "utf8");
+  const fallbackSrc = fs.readFileSync(path.join(rootDir, "src/components/RobotAvatarFallback.tsx"), "utf8");
+
+  // Three.js 3D Hierarchical Object Groups
+  assert(avatar3dSrc.includes("leftShoulderRef"), "RobotAvatar3D must provide leftShoulder reference");
+  assert(avatar3dSrc.includes("rightShoulderRef"), "RobotAvatar3D must provide rightShoulder reference");
+  assert(avatar3dSrc.includes("leftElbowRef"), "RobotAvatar3D must provide leftElbow reference");
+  assert(avatar3dSrc.includes("rightElbowRef"), "RobotAvatar3D must provide rightElbow reference");
+  assert(avatar3dSrc.includes("headGroupRef"), "RobotAvatar3D must provide headGroup reference");
+  assert(avatar3dSrc.includes("torsoGroup"), "RobotAvatar3D must construct upper body torsoGroup");
+  assert(avatar3dSrc.includes("neckGeo"), "RobotAvatar3D must construct neck joint");
+  assert(avatar3dSrc.includes("leftUpperArmGeo"), "RobotAvatar3D must construct upper arm meshes");
+  assert(avatar3dSrc.includes("leftForearmGeo"), "RobotAvatar3D must construct forearm meshes");
+  assert(avatar3dSrc.includes("mouthMeshRef"), "RobotAvatar3D must construct movable mouth mesh");
+
+  // Fallback SVG verification
+  assert(fallbackSrc.includes("Left Arm"), "Fallback must render Left Arm structure");
+  assert(fallbackSrc.includes("Right Arm"), "Fallback must render Right Arm structure");
+});
+
+// ----------------------------------------------------------------------------
+// TEST 16: Expressive Animation States & Audio-Driven Decay
+// ----------------------------------------------------------------------------
+runTest("Animation system smoothly blends poses across all core states and resets speaking animation on audio silence or interruption", () => {
+  const avatar3dSrc = fs.readFileSync(path.join(rootDir, "src/components/RobotAvatar3D.tsx"), "utf8");
+
+  // State poses in animation loop
+  assert(avatar3dSrc.includes('currentState === "IDLE"'), "Must handle IDLE state pose");
+  assert(avatar3dSrc.includes('currentState === "LISTENING"'), "Must handle LISTENING state pose");
+  assert(avatar3dSrc.includes('currentState === "THINKING"'), "Must handle THINKING state pose");
+  assert(avatar3dSrc.includes('currentState === "SPEAKING"'), "Must handle SPEAKING state pose");
+  assert(avatar3dSrc.includes('currentState === "HAPPY"'), "Must handle HAPPY state pose");
+  assert(avatar3dSrc.includes('currentState === "CONFUSED"'), "Must handle CONFUSED state pose");
+  assert(avatar3dSrc.includes('currentState === "ERROR"'), "Must handle ERROR state pose");
+  assert(avatar3dSrc.includes('currentState === "DISCONNECTED"'), "Must handle DISCONNECTED state pose");
+
+  // Smooth lerp interpolation
+  assert(avatar3dSrc.includes("lerpSpeed"), "Must use lerpSpeed for smooth joint transition blending");
+  assert(avatar3dSrc.includes("targetPitch"), "Must compute target pitch smoothly");
+
+  // Audio-driven mouth behavior: mouth returns to resting neutral when not speaking
+  assert(avatar3dSrc.includes("neutral resting mouth") || avatar3dSrc.includes("0.80, 0.20, 1.0"), "Must set mouth to resting neutral when speaking stops");
+});
+
+// ----------------------------------------------------------------------------
+// TEST 17: Customer Interface Branding Consistency
+// ----------------------------------------------------------------------------
+runTest("Branding across Navbar, Layout, and Widget reflects Brain Magic RealEstate Voice AI and Voice Assistance", () => {
+  const navbarSrc = fs.readFileSync(path.join(rootDir, "src/components/Navbar.tsx"), "utf8");
+  const layoutSrc = fs.readFileSync(path.join(rootDir, "src/app/layout.tsx"), "utf8");
+  const widgetSrc = fs.readFileSync(path.join(rootDir, "src/components/RobotVoiceWidget.tsx"), "utf8");
+
+  assert(navbarSrc.includes("Brain Magic RealEstate Voice AI"), "Navbar must display 'Brain Magic RealEstate Voice AI'");
+  assert(!navbarSrc.includes("Nova 2.5 Sonic</span>"), "Navbar must not contain the Nova 2.5 Sonic badge");
+  assert(navbarSrc.includes("brainmagic-logo.png"), "Navbar must render the Brain Magic logo image");
+  assert(!navbarSrc.includes("Building2"), "Navbar must not contain the old green building icon");
+  assert(layoutSrc.includes("BrainMagic Voice AI"), "Layout metadata title must be 'BrainMagic Voice AI'");
+  assert(widgetSrc.includes("Voice Assistance"), "Widget must display 'Voice Assistance'");
+});
+
 console.log("------------------------------------------------------------------");
 console.log(`Total tests run: ${testsPassed + testsFailed}`);
 console.log(`Passed: ${testsPassed}`);

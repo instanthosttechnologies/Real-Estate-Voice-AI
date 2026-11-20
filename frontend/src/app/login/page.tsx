@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import {
-  Building2,
   Lock,
   Mail,
   AlertCircle,
@@ -46,6 +45,13 @@ export default function LoginPage() {
   const [customerSubmitting, setCustomerSubmitting] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [resending, setResending] = useState(false);
+
+  // Check if redirected due to expired session
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.location.search.includes("expired=1")) {
+      setError("Your session has expired. Please verify with a fresh verification code to continue.");
+    }
+  }, []);
 
   // Resend cooldown timer
   useEffect(() => {
@@ -167,7 +173,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-[85vh] flex items-center justify-center px-4 sm:px-6 lg:px-8 py-8 bg-slate-50">
-      <div className="max-w-md w-full space-y-6 bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
+      <div className="max-w-md w-full space-y-6 bg-white p-8 rounded-2xl border border-sky-100 shadow-sm">
         <div>
           <Link
             href="/"
@@ -178,7 +184,7 @@ export default function LoginPage() {
           </Link>
 
           {/* Mode Tabs */}
-          <div className="flex rounded-lg bg-slate-100 p-1 mb-6 text-xs font-semibold">
+          <div className="flex rounded-xl bg-slate-100 p-1 mb-6 text-xs font-semibold">
             <button
               type="button"
               onClick={() => {
@@ -186,8 +192,8 @@ export default function LoginPage() {
                 setError(null);
                 setInfoMessage(null);
               }}
-              className={`flex-1 py-2 rounded-md transition-all flex items-center justify-center space-x-1.5 ${
-                activeTab === "admin" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+              className={`flex-1 py-2 rounded-lg transition-all flex items-center justify-center space-x-1.5 ${
+                activeTab === "admin" ? "bg-white text-sky-700 shadow-sm font-bold" : "text-slate-600 hover:text-slate-900"
               }`}
             >
               <ShieldCheck className="w-3.5 h-3.5" />
@@ -200,8 +206,8 @@ export default function LoginPage() {
                 setError(null);
                 setInfoMessage(null);
               }}
-              className={`flex-1 py-2 rounded-md transition-all flex items-center justify-center space-x-1.5 ${
-                activeTab === "customer" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+              className={`flex-1 py-2 rounded-lg transition-all flex items-center justify-center space-x-1.5 ${
+                activeTab === "customer" ? "bg-white text-sky-700 shadow-sm font-bold" : "text-slate-600 hover:text-slate-900"
               }`}
             >
               <Mic className="w-3.5 h-3.5" />
@@ -212,7 +218,7 @@ export default function LoginPage() {
           <div className="text-center">
             <div
               className={`mx-auto h-12 w-12 rounded-xl flex items-center justify-center text-white shadow-sm mb-4 ${
-                activeTab === "admin" ? "bg-slate-900" : "bg-emerald-600"
+                activeTab === "admin" ? "bg-sky-700" : "bg-sky-600"
               }`}
             >
               {activeTab === "admin" ? <ShieldCheck className="h-7 w-7" /> : <Mic className="h-6 w-6" />}
@@ -231,7 +237,7 @@ export default function LoginPage() {
         </div>
 
         {infoMessage && (
-          <div className="p-3.5 rounded-lg bg-emerald-50 border border-emerald-200 flex items-start space-x-2.5 text-emerald-800 text-sm">
+          <div className="p-3.5 rounded-lg bg-sky-50 border border-sky-200 flex items-start space-x-2.5 text-sky-800 text-sm">
             <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5 text-emerald-600" />
             <span>{infoMessage}</span>
           </div>
@@ -261,7 +267,7 @@ export default function LoginPage() {
                   value={adminEmail}
                   onChange={(e) => setAdminEmail(e.target.value)}
                   placeholder="admin@realty.com"
-                  className="block w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-colors"
+                  className="block w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors"
                 />
               </div>
             </div>
@@ -280,7 +286,7 @@ export default function LoginPage() {
                   value={adminPassword}
                   onChange={(e) => setAdminPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="block w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900 transition-colors"
+                  className="block w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors"
                 />
               </div>
             </div>
@@ -288,7 +294,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={adminLoading}
-              className="w-full flex justify-center items-center py-2.5 px-4 border border-transparent rounded-lg shadow-sm text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-900 transition-colors disabled:opacity-50"
+              className="w-full flex justify-center items-center py-2.5 px-4 border border-transparent rounded-lg shadow-sm text-sm font-semibold text-white bg-sky-700 hover:bg-sky-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 transition-colors disabled:opacity-50"
             >
               {adminLoading ? (
                 <span className="flex items-center space-x-2">
@@ -324,7 +330,7 @@ export default function LoginPage() {
                       value={customerName}
                       onChange={(e) => setCustomerName(e.target.value)}
                       placeholder="e.g. Ramesh Kumar"
-                      className="block w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
+                      className="block w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors"
                     />
                   </div>
                 </div>
@@ -343,7 +349,7 @@ export default function LoginPage() {
                       value={customerPhone}
                       onChange={(e) => setCustomerPhone(e.target.value)}
                       placeholder="+91-9876543210"
-                      className="block w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
+                      className="block w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors"
                     />
                   </div>
                 </div>
@@ -362,7 +368,7 @@ export default function LoginPage() {
                       value={customerEmail}
                       onChange={(e) => setCustomerEmail(e.target.value)}
                       placeholder="ramesh.kumar@example.com"
-                      className="block w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
+                      className="block w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors"
                     />
                   </div>
                 </div>
@@ -371,7 +377,7 @@ export default function LoginPage() {
                   <button
                     type="submit"
                     disabled={customerSubmitting}
-                    className="w-full flex items-center justify-center py-2.5 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm shadow-sm transition-colors disabled:opacity-50"
+                    className="w-full flex items-center justify-center py-2.5 px-4 rounded-lg bg-sky-600 hover:bg-sky-700 text-white font-semibold text-sm shadow-sm transition-colors disabled:opacity-50"
                   >
                     {customerSubmitting ? (
                       <span className="flex items-center space-x-2">
@@ -402,7 +408,7 @@ export default function LoginPage() {
                       value={otpCode}
                       onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                       placeholder="••••••"
-                      className="block w-full py-3 px-4 text-center tracking-[0.5em] text-2xl font-mono font-bold border border-slate-300 rounded-lg placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
+                      className="block w-full py-3 px-4 text-center tracking-[0.5em] text-2xl font-mono font-bold border border-slate-300 rounded-lg placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors"
                     />
                   </div>
                   <p className="mt-1.5 text-xs text-slate-500 text-center">
@@ -414,7 +420,7 @@ export default function LoginPage() {
                   <button
                     type="submit"
                     disabled={verifying || otpCode.length !== 6}
-                    className="w-full flex items-center justify-center py-2.5 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm shadow-sm transition-colors disabled:opacity-50"
+                    className="w-full flex items-center justify-center py-2.5 px-4 rounded-lg bg-sky-600 hover:bg-sky-700 text-white font-semibold text-sm shadow-sm transition-colors disabled:opacity-50"
                   >
                     {verifying ? (
                       <span className="flex items-center space-x-2">
@@ -430,7 +436,7 @@ export default function LoginPage() {
                   </button>
                 </div>
 
-                <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-xs">
+                <div className="pt-4 border-t border-sky-100 flex items-center justify-between text-xs">
                   <button
                     type="button"
                     onClick={() => {
@@ -446,7 +452,7 @@ export default function LoginPage() {
                     type="button"
                     onClick={handleResendOtp}
                     disabled={resendCooldown > 0 || resending}
-                    className="font-semibold text-emerald-600 hover:text-emerald-700 disabled:text-slate-400 transition-colors inline-flex items-center space-x-1"
+                    className="font-semibold text-sky-600 hover:text-sky-700 disabled:text-slate-400 transition-colors inline-flex items-center space-x-1"
                   >
                     <RotateCcw className={`w-3 h-3 ${resending ? "animate-spin" : ""}`} />
                     <span>
@@ -459,11 +465,11 @@ export default function LoginPage() {
           </>
         )}
 
-        <div className="pt-4 border-t border-slate-200 text-center">
+        <div className="pt-4 border-t border-sky-100 text-center">
           <p className="text-xs text-slate-500 mb-2">New property buyer or investor?</p>
           <Link
             href="/"
-            className="inline-flex items-center text-sm font-semibold text-emerald-600 hover:text-emerald-700 transition-colors"
+            className="inline-flex items-center text-sm font-semibold text-sky-600 hover:text-sky-700 transition-colors"
           >
             Explore with our AI Voice Assistant
             <ArrowRight className="w-3.5 h-3.5 ml-1" />

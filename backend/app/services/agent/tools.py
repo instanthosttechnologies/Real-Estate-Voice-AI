@@ -22,6 +22,7 @@ from app.schemas.agent_tools import (
     GetPropertyPriceToolInput,
     RescheduleSiteVisitToolInput,
     SearchPropertiesToolInput,
+    QueryActiveDatasetToolInput,
     TransferToHumanToolInput,
     UpdateLeadToolInput,
     CalculateLeadPriorityToolInput,
@@ -46,9 +47,40 @@ from app.services.real_estate.site_visits import (
     get_available_visit_slots,
     reschedule_site_visit,
 )
+from app.services.dataset.manager import get_active_dataset
+from app.services.dataset.retrieval import query_dynamic_dataset
 
 
 def tool_search_properties(db: Session, args: SearchPropertiesToolInput) -> AgentToolResponse:
+    # 1. Check if an active dynamic dataset is configured
+    active_ds = get_active_dataset(db)
+    if active_ds:
+        query_terms = " ".join([
+            v for v in [args.project_name, args.company_name, args.city, args.location_query, args.configuration_type, args.property_type]
+            if v
+        ])
+        if not query_terms and args.required_amenities:
+            query_terms = " ".join(args.required_amenities)
+        if query_terms:
+            ds_res = query_dynamic_dataset(db, query_terms, limit=args.limit)
+            if ds_res.get("found") and ds_res.get("records"):
+                return AgentToolResponse(
+                    tool_name="search_properties",
+                    success=True,
+                    data={
+                        "dataset_grounded": True,
+                        "dataset_name": ds_res["dataset_name"],
+                        "dataset_version": ds_res["dataset_version"],
+                        "total_exact_matches": ds_res["returned_matches"],
+                        "exact_matches": ds_res["records"],
+                        "voice_grounding": ds_res["voice_grounding"],
+                    },
+                    anti_hallucination_guidance=(
+                        "State only the properties returned in exact_matches and use the voice_grounding summary. "
+                        "Never fabricate unlisted projects, prices, or configurations."
+                    ),
+                )
+
     criteria = PropertySearchCriteria(
         city=args.city,
         location_query=args.location_query,
@@ -496,3 +528,30 @@ def tool_transfer_to_human(db: Session, args: TransferToHumanToolInput) -> Agent
             "that a live telephone transfer is ringing or currently connected."
         )
     )
+
+
+def tool_query_active_dataset(db: Session, args: QueryActiveDatasetToolInput) -> AgentToolResponse:
+    """
+    Direct dynamic retrieval tool across the active real estate dataset.
+    Answers developer, project, configuration, location, and amenities questions.
+    """
+    query_str = args.query
+    if args.developer and args.developer.lower() not in query_str.lower():
+        query_str = f"{args.developer} {query_str}"
+    if args.city and args.city.lower() not in query_str.lower():
+        query_str = f"{query_str} in {args.city}"
+    if args.configuration and args.configuration.lower() not in query_str.lower():
+        query_str = f"{query_str} {args.configuration}"
+
+    res = query_dynamic_dataset(db, query_str.strip(), limit=args.limit)
+    return AgentToolResponse(
+        tool_name="query_active_dataset",
+        success=True,
+        data=res,
+        anti_hallucination_guidance=(
+            "Answer the customer's question strictly using the returned verified dataset records. "
+            "If a detail (such as price, floor plan, or possession status) is null or unstated in the record, "
+            "explicitly inform the customer that it is unstated in the verified portfolio and offer to connect them with a specialist."
+        ),
+    )
+

@@ -166,24 +166,30 @@ class BedrockNovaSonicSerializer:
         max_tokens: int = 1024,
         temperature: float = 0.7,
         top_p: float = 0.9,
+        endpointing_sensitivity: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Constructs the initial sessionStart event."""
+        """Constructs the initial sessionStart event adhering strictly to official AWS Nova Sonic specs."""
+        session_def: Dict[str, Any] = {
+            "inferenceConfiguration": {
+                "maxTokens": max_tokens,
+                "temperature": temperature,
+                "topP": top_p,
+            }
+        }
+        if endpointing_sensitivity:
+            session_def["turnDetectionConfiguration"] = {
+                "endpointingSensitivity": endpointing_sensitivity,
+            }
         return {
             "event": {
-                "sessionStart": {
-                    "inferenceConfiguration": {
-                        "maxTokens": max_tokens,
-                        "temperature": temperature,
-                        "topP": top_p,
-                    }
-                }
+                "sessionStart": session_def
             }
         }
 
     @staticmethod
     def serialize_prompt_start(
         prompt_name: str,
-        tools: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
         voice_id: str = "matthew",
         output_sample_rate: int = 24000,
     ) -> Dict[str, Any]:
@@ -200,14 +206,43 @@ class BedrockNovaSonicSerializer:
                 "encoding": "base64",
                 "audioType": "SPEECH",
             },
-            "toolUseOutputConfiguration": {
-                "mediaType": "application/json"
-            },
         }
-
         if tools:
+            # Normalize every tool's toolSpec.inputSchema.json to a compact JSON string (AWS Nova Sonic requirement)
+            normalized_tools: List[Dict[str, Any]] = []
+            for t in tools:
+                if not isinstance(t, dict):
+                    normalized_tools.append(t)
+                    continue
+                tool_dict = dict(t)
+                tool_spec = dict(tool_dict.get("toolSpec", {}))
+                tool_dict["toolSpec"] = tool_spec
+
+                input_schema = dict(tool_spec.get("inputSchema", {}))
+                tool_spec["inputSchema"] = input_schema
+
+                json_val = input_schema.get("json")
+                if json_val is not None:
+                    if isinstance(json_val, dict):
+                        # Convert dict schema to compact JSON string without extra whitespace
+                        input_schema["json"] = json.dumps(json_val, separators=(",", ":"), default=str)
+                    elif isinstance(json_val, str):
+                        # Do not double-serialize: verify it parses cleanly and re-compact
+                        try:
+                            parsed = json.loads(json_val)
+                            if isinstance(parsed, (dict, list)):
+                                input_schema["json"] = json.dumps(parsed, separators=(",", ":"), default=str)
+                            else:
+                                input_schema["json"] = json_val
+                        except Exception:
+                            input_schema["json"] = json_val
+                normalized_tools.append(tool_dict)
+
+            prompt_def["toolUseOutputConfiguration"] = {
+                "mediaType": "application/json"
+            }
             prompt_def["toolConfiguration"] = {
-                "tools": tools
+                "tools": normalized_tools
             }
 
         return {
@@ -217,21 +252,48 @@ class BedrockNovaSonicSerializer:
         }
 
     @staticmethod
-    def serialize_system_content_start(
+    def serialize_text_content_start(
         prompt_name: str,
-        content_name: str = "system-preamble",
+        content_name: str,
+        role: str = "USER",
+        interactive: bool = True,
     ) -> Dict[str, Any]:
-        """Opens a SYSTEM role content container for system instructions."""
+        """
+        Opens a TEXT role content container for textual input (USER cross-modal greeting or SYSTEM instructions).
+        Conforms strictly to Bedrock Nova Sonic specification:
+        - promptName and contentName
+        - type: "TEXT"
+        - interactive: True (for USER input requiring assistant speech response) or False (SYSTEM)
+        - role: "USER" or "SYSTEM"
+        - textInputConfiguration: {"mediaType": "text/plain"}
+        """
         return {
             "event": {
                 "contentStart": {
                     "promptName": prompt_name,
                     "contentName": content_name,
                     "type": "TEXT",
-                    "role": "SYSTEM",
+                    "interactive": interactive,
+                    "role": role,
+                    "textInputConfiguration": {
+                        "mediaType": "text/plain"
+                    },
                 }
             }
         }
+
+    @staticmethod
+    def serialize_system_content_start(
+        prompt_name: str,
+        content_name: str = "system-preamble",
+    ) -> Dict[str, Any]:
+        """Opens a SYSTEM role content container for system instructions."""
+        return BedrockNovaSonicSerializer.serialize_text_content_start(
+            prompt_name=prompt_name,
+            content_name=content_name,
+            role="SYSTEM",
+            interactive=False,
+        )
 
     @staticmethod
     def serialize_text_input(
@@ -254,9 +316,9 @@ class BedrockNovaSonicSerializer:
     def serialize_audio_content_start(
         prompt_name: str,
         content_name: str,
-        sample_rate: int = 24000,
+        sample_rate: int = 16000,
     ) -> Dict[str, Any]:
-        """Opens a USER role content container for real-time continuous audio streaming."""
+        """Opens a USER role content container for real-time continuous audio streaming (must be 16kHz)."""
         return {
             "event": {
                 "contentStart": {
@@ -306,8 +368,16 @@ class BedrockNovaSonicSerializer:
                 "contentStart": {
                     "promptName": prompt_name,
                     "contentName": tool_use_id,
+                    "interactive": False,
                     "type": "TOOL",
                     "role": "TOOL",
+                    "toolResultInputConfiguration": {
+                        "toolUseId": tool_use_id,
+                        "type": "TEXT",
+                        "textInputConfiguration": {
+                            "mediaType": "text/plain"
+                        },
+                    },
                 }
             }
         }
@@ -695,6 +765,9 @@ class _CRTBedrockStreamConnection(BedrockStreamConnection):
         self.response_status_code: Optional[int] = None
         self.response_headers: List[Tuple[str, str]] = []
 
+        from app.services.voice.nova_validator import NovaSonicEventValidator
+        self._validator = NovaSonicEventValidator(strict_sequencing=False)
+
     def _create_signed_request(self) -> Any:
         """Constructs an HttpRequest with AWS SigV4 authorization headers."""
         import awscrt.http as crt_http
@@ -767,7 +840,7 @@ class _CRTBedrockStreamConnection(BedrockStreamConnection):
             tls_ctx_opt = io.TlsContextOptions()
             tls_ctx = io.ClientTlsContext(tls_ctx_opt)
             tls_conn_opt = io.TlsConnectionOptions(tls_ctx)
-            tls_conn_opt.server_name = self.endpoint
+            tls_conn_opt.set_server_name(self.endpoint)
             tls_conn_opt.set_alpn_list(["h2"])
 
             conn_future = http.HttpClientConnection.new(
@@ -779,9 +852,9 @@ class _CRTBedrockStreamConnection(BedrockStreamConnection):
             if hasattr(conn_future, "done") and conn_future.done():
                 self._http2_conn = conn_future.result()
             elif hasattr(conn_future, "result") and not asyncio.iscoroutine(conn_future):
-                self._http2_conn = await asyncio.wrap_future(conn_future)
+                self._http2_conn = await asyncio.wait_for(asyncio.wrap_future(conn_future), timeout=10.0)
             elif asyncio.iscoroutine(conn_future):
-                self._http2_conn = await conn_future
+                self._http2_conn = await asyncio.wait_for(conn_future, timeout=10.0)
 
         def on_response(http_stream, status_code, headers, **kwargs):
             self.response_status_code = status_code
@@ -797,6 +870,20 @@ class _CRTBedrockStreamConnection(BedrockStreamConnection):
                 })
 
         def on_body(http_stream, chunk, **kwargs):
+            if self.response_status_code and self.response_status_code != 200:
+                try:
+                    err_json = json.loads(chunk.decode("utf-8", errors="ignore"))
+                    err_msg = err_json.get("message", chunk.decode("utf-8", errors="ignore"))
+                    self._inbound_queue.put_nowait({
+                        "event": {
+                            "modelStreamErrorException": {
+                                "message": f"Bedrock HTTP {self.response_status_code}: {err_msg}"
+                            }
+                        }
+                    })
+                except Exception:
+                    pass
+                return
             self.feed_raw_bytes(chunk)
 
         self._http2_stream = self._http2_conn.request(
@@ -818,7 +905,27 @@ class _CRTBedrockStreamConnection(BedrockStreamConnection):
         if not self._http2_stream:
             raise ConnectionError("Bedrock HTTP/2 duplex stream is not connected or active.")
 
+        # Validate event envelope and sequencing against Amazon Nova 2.5 Sonic specification
+        self._validator.validate_event(event_dict)
+
+        # Structured diagnostic logging without logging credentials or raw audio
+        evt_body = event_dict.get("event", event_dict)
+        evt_name = next(iter(evt_body.keys())) if isinstance(evt_body, dict) and evt_body else "unknown"
+        meta_diag = ""
+        if evt_name == "contentStart":
+            cs = evt_body.get("contentStart", {})
+            meta_diag = f" (role={cs.get('role')}, type={cs.get('type')}, name={cs.get('contentName')})"
+        elif evt_name == "promptStart":
+            ps = evt_body.get("promptStart", {})
+            tools_cnt = len(ps.get("toolConfiguration", {}).get("tools", []))
+            meta_diag = f" (tools_count={tools_cnt}, voice={ps.get('audioOutputConfiguration', {}).get('voiceId')})"
+        elif evt_name == "audioInput":
+            ai = evt_body.get("audioInput", {})
+            meta_diag = f" (chunk_b64_len={len(ai.get('content', ''))})"
+
         payload_bytes = json.dumps(event_dict, default=str).encode("utf-8")
+        logger.info(f"[Bedrock EventStream Tx] Event: {evt_name}{meta_diag} ({len(payload_bytes)} bytes)")
+
         # Frame event using AWS EventStream binary wire specification
         frame_bytes = AWSEventStreamCodec.encode_message(
             payload=payload_bytes,
@@ -831,13 +938,16 @@ class _CRTBedrockStreamConnection(BedrockStreamConnection):
         self.sent_frames.append(frame_bytes)
 
         # Actively transmit frame over the HTTP/2 stream
-        write_future = self._http2_stream.write_data(frame_bytes, end_stream=False)
+        import io
+        import awscrt.io
+        data_stream = awscrt.io.InputStream.wrap(io.BytesIO(frame_bytes))
+        write_future = self._http2_stream.write_data(data_stream, end_stream=False)
         if hasattr(write_future, "done") and write_future.done():
             write_future.result()
         elif hasattr(write_future, "result") and not asyncio.iscoroutine(write_future):
-            await asyncio.wrap_future(write_future)
+            await asyncio.wait_for(asyncio.wrap_future(write_future), timeout=5.0)
         elif asyncio.iscoroutine(write_future):
-            await write_future
+            await asyncio.wait_for(write_future, timeout=5.0)
         logger.debug(f"Transmitted EventStream binary chunk ({len(frame_bytes)} bytes, payload: {len(payload_bytes)} bytes)")
 
     def feed_raw_bytes(self, chunk: bytes) -> None:
@@ -865,13 +975,19 @@ class _CRTBedrockStreamConnection(BedrockStreamConnection):
                 msg_type = headers.get(":message-type", "")
                 if msg_type in ("exception", "error"):
                     err_type = headers.get(":exception-type", "modelStreamErrorException")
+                    err_message = payload.get("message", f"Stream error: {err_type}")
+                    logger.error(f"[Bedrock EventStream Rx Exception] Type: {err_type}, Message: {err_message}")
                     payload = {
                         "event": {
                             err_type: {
-                                "message": payload.get("message", f"Stream error: {err_type}")
+                                "message": err_message
                             }
                         }
                     }
+                else:
+                    inbound_body = payload.get("event", payload)
+                    inbound_key = next(iter(inbound_body.keys())) if isinstance(inbound_body, dict) and inbound_body else "chunk"
+                    logger.info(f"[Bedrock EventStream Rx] Event: {inbound_key}")
 
                 self._inbound_queue.put_nowait(payload)
         except Exception as exc:
@@ -891,7 +1007,10 @@ class _CRTBedrockStreamConnection(BedrockStreamConnection):
 
         if self._http2_stream:
             try:
-                write_future = self._http2_stream.write_data(None, end_stream=True)
+                import io
+                import awscrt.io
+                empty_stream = awscrt.io.InputStream.wrap(io.BytesIO(b""))
+                write_future = self._http2_stream.write_data(empty_stream, end_stream=True)
                 if hasattr(write_future, "done") and write_future.done():
                     write_future.result()
                 elif hasattr(write_future, "result") and not asyncio.iscoroutine(write_future):
@@ -929,9 +1048,15 @@ class MockBedrockStreamConnection(BedrockStreamConnection):
         self.sent_raw_frames: List[bytes] = []
         self._is_closed: bool = False
 
+        from app.services.voice.nova_validator import NovaSonicEventValidator
+        self._validator = NovaSonicEventValidator(strict_sequencing=False)
+
     async def send_event(self, event_dict: Dict[str, Any]) -> None:
         if self._is_closed:
             raise RuntimeError("Cannot send to closed mock stream.")
+
+        # Validate event envelope and sequencing against Amazon Nova 2.5 Sonic specification
+        self._validator.validate_event(event_dict)
         
         # Verify event encodes cleanly into standard AWS EventStream binary message
         payload_bytes = json.dumps(event_dict, default=str).encode("utf-8")

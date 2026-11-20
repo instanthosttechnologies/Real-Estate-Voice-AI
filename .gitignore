@@ -55,3 +55,33 @@ frontend/.env
 # IDE
 .vscode/
 .idea/
+
+
+# Secrets
+.env
+.env.*
+**/.env
+**/.env.*
+*.pem
+*.key
+credentials
+
+# Dependencies
+node_modules/
+.venv/
+.venv_nova_sdk/
+venv/
+.next/
+__pycache__/
+
+# Generated files
+*.tsbuildinfo
+*.pyc
+*.log
+
+# Database files and backups
+*.dump
+*.backup
+*.sqlite
+*.db
+db_backups/

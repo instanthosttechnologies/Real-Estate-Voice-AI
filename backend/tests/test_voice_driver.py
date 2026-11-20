@@ -44,7 +44,7 @@ from sqlalchemy.pool import StaticPool
 
 def test_mock_voice_driver_session_lifecycle():
     async def _run():
-        driver = MockVoiceDriver(model_id="amazon.nova-2-5-sonic")
+        driver = MockVoiceDriver(model_id="amazon.nova-2-5-sonic", enable_synthetic_tones=True)
         session_id = "test_sess_001"
         tools = get_agent_tools_spec()
 
@@ -146,7 +146,12 @@ def test_mock_voice_driver_explicit_test_triggers():
 
 def test_amazon_nova_sonic_driver_initialization():
     async def _run():
-        driver = AmazonNovaSonicDriver(model_id="amazon.nova-2-5-sonic", region_name="us-east-1")
+        mock_transport = MockBedrockStreamTransport()
+        driver = AmazonNovaSonicDriver(
+            model_id="amazon.nova-2-5-sonic",
+            region_name="us-east-1",
+            transport=mock_transport,
+        )
         assert driver.provider_name == "amazon_nova_sonic"
         assert driver.model_id == "amazon.nova-2-5-sonic"
 
@@ -521,7 +526,17 @@ class SimulatedHttp2ClientStream:
         import concurrent.futures
         f = concurrent.futures.Future()
         if data_stream is not None:
-            raw_bytes = bytes(data_stream) if not isinstance(data_stream, bytes) else data_stream
+            if isinstance(data_stream, bytes):
+                raw_bytes = data_stream
+            elif hasattr(data_stream, "_stream") and hasattr(data_stream._stream, "getvalue"):
+                raw_bytes = data_stream._stream.getvalue()
+            elif hasattr(data_stream, "read"):
+                raw_bytes = data_stream.read()
+            else:
+                try:
+                    raw_bytes = bytes(data_stream)
+                except Exception:
+                    raw_bytes = b""
             self.written_chunks.append(raw_bytes)
         if end_stream:
             self.ended = True
@@ -1116,6 +1131,73 @@ def test_nova_sonic_driver_timeout_and_error_propagation():
         await driver.end_session(session_id)
 
     asyncio.run(_run())
+
+
+def test_mock_voice_driver_microphone_audio_chunk_streaming():
+    """
+    Validates that MockVoiceDriver processes incoming raw microphone PCM frames,
+    detects speech activity, generates assistant voice turns and produces audible audio.
+    """
+    async def _run():
+        driver = MockVoiceDriver(enable_synthetic_tones=True)
+        session_id = "test_audio_stream_sess_01"
+        await driver.start_session(session_id, "Test prompt", [])
+
+        queue = driver._session_queues[session_id]
+
+        # Drain initial SESSION_STARTED, GREETING transcript, and GREETING audio
+        initial_events = []
+        while not queue.empty():
+            initial_events.append(queue.get_nowait())
+        assert any(e.event_type == VoiceEventType.SESSION_STARTED for e in initial_events)
+        assert any(e.event_type == VoiceEventType.TRANSCRIPT_DELTA for e in initial_events)
+        assert any(e.event_type == VoiceEventType.AUDIO_OUTPUT for e in initial_events)
+
+        # 1. Stream simulated microphone speech chunks (4096 bytes per chunk)
+        simulated_speech_chunk = b"\x10\x27" * 2048  # 16-bit PCM samples with high amplitude
+        for _ in range(6):
+            await driver.send_audio_chunk(session_id, simulated_speech_chunk)
+
+        # 2. Verify conversational response events were produced
+        speech_turn_events = []
+        while not queue.empty():
+            speech_turn_events.append(queue.get_nowait())
+
+        # Expect: User transcript delta, Assistant transcript delta, and Audible Audio Output
+        user_deltas = [e for e in speech_turn_events if e.event_type == VoiceEventType.TRANSCRIPT_DELTA and e.transcript_payload.role == "user"]
+        assistant_deltas = [e for e in speech_turn_events if e.event_type == VoiceEventType.TRANSCRIPT_DELTA and e.transcript_payload.role == "assistant"]
+        audio_outputs = [e for e in speech_turn_events if e.event_type == VoiceEventType.AUDIO_OUTPUT]
+
+        assert len(user_deltas) >= 1, "Must produce user transcript upon microphone speech"
+        assert len(assistant_deltas) >= 1, "Must produce assistant reply upon microphone speech"
+        assert len(audio_outputs) >= 1, "Must stream audio output back to client"
+
+        # Verify assistant audio is audible (non-zero PCM waveform)
+        audio_bytes = audio_outputs[0].audio_payload.audio_bytes
+        assert len(audio_bytes) > 0
+        assert any(b != 0 for b in audio_bytes), "Audio must not be pure silence (must be audible acoustic waveform)"
+
+        # 3. Clean teardown
+        await driver.end_session(session_id)
+        assert session_id not in driver._session_turn_count, "Session maps must be cleaned up on end_session"
+
+    asyncio.run(_run())
+
+
+def test_mock_voice_driver_audible_pcm_waveform_generation():
+    """
+    Validates that _generate_synthetic_pcm_audio generates a non-silent, harmonic 16-bit PCM waveform.
+    """
+    driver = MockVoiceDriver()
+    audio = driver._generate_synthetic_pcm_audio(duration_ms=200, sample_rate=24000, freq=440.0)
+
+    # 200ms at 24kHz, 16-bit mono = 4800 samples = 9600 bytes
+    assert len(audio) == 9600
+    # Must contain positive and negative non-zero byte samples
+    assert any(b > 0 for b in audio)
+    energy = driver._calculate_audio_energy(audio)
+    assert energy > 500.0, f"Generated audio energy ({energy}) must be audible (>500 RMS)"
+
 
 
 

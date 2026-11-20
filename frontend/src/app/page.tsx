@@ -3,8 +3,8 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import {
-  Building2,
   Mic,
   ShieldCheck,
   User,
@@ -180,16 +180,21 @@ export default function WelcomePage() {
       <div className="max-w-4xl mx-auto w-full">
         {/* Brand Header */}
         <div className="text-center mb-10">
-          <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold mb-4 shadow-sm">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>Amazon Nova 2.5 Sonic • Bidirectional Voice AI</span>
+          <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-sky-50 border border-sky-200 text-sky-800 text-xs font-semibold mb-4 shadow-sm">
+            <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse"></span>
+            <span>Voice Assistance • Bidirectional Voice AI</span>
           </div>
           <div className="flex items-center justify-center space-x-3 mb-2">
-            <div className="h-10 w-10 rounded-xl bg-emerald-600 flex items-center justify-center text-white shadow-sm">
-              <Building2 className="h-6 w-6" />
-            </div>
+            <Image
+              src="/brainmagic-logo.png"
+              alt="Brain Magic Logo"
+              width={32}
+              height={66}
+              className="h-10 sm:h-12 w-auto object-contain flex-shrink-0"
+              priority
+            />
             <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
-              RealEstate Agentic Voice AI
+              Brain Magic RealEstate Voice AI
             </h1>
           </div>
           <p className="text-base text-slate-600 max-w-xl mx-auto">
@@ -207,13 +212,13 @@ export default function WelcomePage() {
                 setFormError(null);
                 setInfoMessage(null);
               }}
-              className="group relative bg-white p-8 rounded-2xl border-2 border-slate-200 hover:border-emerald-500 shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col justify-between"
+              className="group relative bg-white p-8 rounded-2xl border-2 border-sky-100 hover:border-sky-500 shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col justify-between"
             >
               <div>
-                <div className="h-14 w-14 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-600 mb-6 group-hover:scale-105 group-hover:bg-emerald-600 group-hover:text-white transition-all duration-200 shadow-sm">
+                <div className="h-14 w-14 rounded-2xl bg-sky-50 border border-sky-200 flex items-center justify-center text-sky-600 mb-6 group-hover:scale-105 group-hover:bg-sky-600 group-hover:text-white transition-all duration-200 shadow-sm">
                   <Mic className="h-7 w-7" />
                 </div>
-                <div className="inline-flex items-center text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md mb-2">
+                <div className="inline-flex items-center text-xs font-semibold text-sky-700 bg-sky-50 px-2.5 py-1 rounded-md mb-2">
                   <Sparkles className="w-3.5 h-3.5 mr-1" />
                   Voice-Only Experience
                 </div>
@@ -223,9 +228,9 @@ export default function WelcomePage() {
                 </p>
               </div>
 
-              <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+              <div className="pt-4 border-t border-sky-100 flex items-center justify-between">
                 <span className="text-xs font-semibold text-slate-500">Secure Email OTP</span>
-                <span className="inline-flex items-center font-semibold text-sm text-emerald-600 group-hover:text-emerald-700 group-hover:translate-x-0.5 transition-transform">
+                <span className="inline-flex items-center font-semibold text-sm text-sky-600 group-hover:text-sky-700 group-hover:translate-x-0.5 transition-transform">
                   Continue
                   <ArrowRight className="w-4 h-4 ml-1.5" />
                 </span>
@@ -235,13 +240,13 @@ export default function WelcomePage() {
             {/* Option 2: Admin Login */}
             <Link
               href="/login"
-              className="group relative bg-white p-8 rounded-2xl border-2 border-slate-200 hover:border-slate-400 shadow-sm hover:shadow-md transition-all duration-200 flex flex-col justify-between"
+              className="group relative bg-white p-8 rounded-2xl border-2 border-sky-100 hover:border-sky-400 shadow-sm hover:shadow-md transition-all duration-200 flex flex-col justify-between"
             >
               <div>
-                <div className="h-14 w-14 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700 mb-6 group-hover:scale-105 group-hover:bg-slate-900 group-hover:text-white transition-all duration-200 shadow-sm">
+                <div className="h-14 w-14 rounded-2xl bg-sky-50 border border-sky-200 flex items-center justify-center text-sky-700 mb-6 group-hover:scale-105 group-hover:bg-sky-700 group-hover:text-white transition-all duration-200 shadow-sm">
                   <ShieldCheck className="h-7 w-7" />
                 </div>
-                <div className="inline-flex items-center text-xs font-semibold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-md mb-2">
+                <div className="inline-flex items-center text-xs font-semibold text-sky-700 bg-sky-50 px-2.5 py-1 rounded-md mb-2">
                   Staff & Operations
                 </div>
                 <h2 className="text-2xl font-bold text-slate-900 mb-2">Admin Login</h2>
@@ -250,9 +255,9 @@ export default function WelcomePage() {
                 </p>
               </div>
 
-              <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+              <div className="pt-4 border-t border-sky-100 flex items-center justify-between">
                 <span className="text-xs font-semibold text-slate-500">Authorized personnel</span>
-                <span className="inline-flex items-center font-semibold text-sm text-slate-700 group-hover:text-slate-900 group-hover:translate-x-0.5 transition-transform">
+                <span className="inline-flex items-center font-semibold text-sm text-sky-700 group-hover:text-sky-900 group-hover:translate-x-0.5 transition-transform">
                   Sign In
                   <ArrowRight className="w-4 h-4 ml-1.5" />
                 </span>
@@ -263,7 +268,7 @@ export default function WelcomePage() {
 
         {/* View 2: Customer Onboarding & Returning Customer Login Form */}
         {viewMode === "customer_form" && (
-          <div className="max-w-md mx-auto bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="max-w-md mx-auto bg-white p-8 rounded-2xl border border-sky-100 shadow-sm">
             <button
               onClick={() => {
                 setViewMode("selection");
@@ -277,15 +282,15 @@ export default function WelcomePage() {
             </button>
 
             {/* Mode Switcher: New Customer vs Returning Customer */}
-            <div className="flex rounded-lg bg-slate-100 p-1 mb-6 text-xs font-semibold">
+            <div className="flex rounded-xl bg-slate-100 p-1 mb-6 text-xs font-semibold">
               <button
                 type="button"
                 onClick={() => {
                   setIsReturning(false);
                   setFormError(null);
                 }}
-                className={`flex-1 py-1.5 rounded-md transition-all ${
-                  !isReturning ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                className={`flex-1 py-1.5 rounded-lg transition-all ${
+                  !isReturning ? "bg-white text-sky-700 shadow-sm font-bold" : "text-slate-600 hover:text-slate-900"
                 }`}
               >
                 New Customer
@@ -296,8 +301,8 @@ export default function WelcomePage() {
                   setIsReturning(true);
                   setFormError(null);
                 }}
-                className={`flex-1 py-1.5 rounded-md transition-all ${
-                  isReturning ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                className={`flex-1 py-1.5 rounded-lg transition-all ${
+                  isReturning ? "bg-white text-sky-700 shadow-sm font-bold" : "text-slate-600 hover:text-slate-900"
                 }`}
               >
                 Returning Customer
@@ -305,7 +310,7 @@ export default function WelcomePage() {
             </div>
 
             <div className="mb-6">
-              <div className="h-12 w-12 rounded-xl bg-emerald-600 flex items-center justify-center text-white mb-3 shadow-sm">
+              <div className="h-12 w-12 rounded-xl bg-sky-600 flex items-center justify-center text-white mb-3 shadow-sm">
                 <Mic className="h-6 w-6" />
               </div>
               <h2 className="text-2xl font-bold text-slate-900">
@@ -341,7 +346,7 @@ export default function WelcomePage() {
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     placeholder="e.g. Ramesh Kumar"
-                    className="block w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
+                    className="block w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors"
                   />
                 </div>
               </div>
@@ -361,7 +366,7 @@ export default function WelcomePage() {
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     placeholder="+91-9876543210"
-                    className="block w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
+                    className="block w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors"
                   />
                 </div>
               </div>
@@ -381,7 +386,7 @@ export default function WelcomePage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="ramesh.kumar@example.com"
-                    className="block w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
+                    className="block w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-lg text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors"
                   />
                 </div>
               </div>
@@ -390,7 +395,7 @@ export default function WelcomePage() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="w-full flex items-center justify-center py-2.5 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm shadow-sm transition-colors disabled:opacity-50"
+                  className="w-full flex items-center justify-center py-2.5 px-4 rounded-lg bg-sky-600 hover:bg-sky-700 text-white font-semibold text-sm shadow-sm transition-colors disabled:opacity-50"
                 >
                   {submitting ? (
                     <span className="flex items-center space-x-2">
@@ -416,7 +421,7 @@ export default function WelcomePage() {
 
         {/* View 3: Six-Digit Email OTP Verification Form */}
         {viewMode === "otp_verification" && (
-          <div className="max-w-md mx-auto bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
+          <div className="max-w-md mx-auto bg-white p-8 rounded-2xl border border-sky-100 shadow-sm">
             <button
               onClick={() => {
                 setViewMode("customer_form");
@@ -430,7 +435,7 @@ export default function WelcomePage() {
             </button>
 
             <div className="mb-6">
-              <div className="h-12 w-12 rounded-xl bg-emerald-600 flex items-center justify-center text-white mb-3 shadow-sm">
+              <div className="h-12 w-12 rounded-xl bg-sky-600 flex items-center justify-center text-white mb-3 shadow-sm">
                 <KeyRound className="h-6 w-6" />
               </div>
               <h2 className="text-2xl font-bold text-slate-900">Verify Your Identity</h2>
@@ -440,7 +445,7 @@ export default function WelcomePage() {
             </div>
 
             {infoMessage && (
-              <div className="mb-5 p-3.5 rounded-lg bg-emerald-50 border border-emerald-200 flex items-start space-x-2.5 text-emerald-800 text-sm">
+              <div className="mb-5 p-3.5 rounded-lg bg-sky-50 border border-sky-200 flex items-start space-x-2.5 text-sky-800 text-sm">
                 <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5 text-emerald-600" />
                 <span>{infoMessage}</span>
               </div>
@@ -467,7 +472,7 @@ export default function WelcomePage() {
                     value={otpCode}
                     onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                     placeholder="••••••"
-                    className="block w-full py-3 px-4 text-center tracking-[0.5em] text-2xl font-mono font-bold border border-slate-300 rounded-lg placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
+                    className="block w-full py-3 px-4 text-center tracking-[0.5em] text-2xl font-mono font-bold border border-slate-300 rounded-lg placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition-colors"
                   />
                 </div>
                 <p className="mt-1.5 text-xs text-slate-500 text-center">
@@ -479,7 +484,7 @@ export default function WelcomePage() {
                 <button
                   type="submit"
                   disabled={verifying || otpCode.length !== 6}
-                  className="w-full flex items-center justify-center py-2.5 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm shadow-sm transition-colors disabled:opacity-50"
+                  className="w-full flex items-center justify-center py-2.5 px-4 rounded-lg bg-sky-600 hover:bg-sky-700 text-white font-semibold text-sm shadow-sm transition-colors disabled:opacity-50"
                 >
                   {verifying ? (
                     <span className="flex items-center space-x-2">
@@ -496,7 +501,7 @@ export default function WelcomePage() {
               </div>
 
               {/* Resend OTP Section */}
-              <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-xs">
+              <div className="pt-4 border-t border-sky-100 flex items-center justify-between text-xs">
                 <span className="text-slate-500 flex items-center space-x-1">
                   <Clock className="w-3.5 h-3.5 text-slate-400" />
                   <span>Didn&apos;t receive code?</span>
@@ -505,7 +510,7 @@ export default function WelcomePage() {
                   type="button"
                   onClick={handleResendOtp}
                   disabled={resendCooldown > 0 || resending}
-                  className="font-semibold text-emerald-600 hover:text-emerald-700 disabled:text-slate-400 transition-colors inline-flex items-center space-x-1"
+                  className="font-semibold text-sky-600 hover:text-sky-700 disabled:text-slate-400 transition-colors inline-flex items-center space-x-1"
                 >
                   <RotateCcw className={`w-3 h-3 ${resending ? "animate-spin" : ""}`} />
                   <span>

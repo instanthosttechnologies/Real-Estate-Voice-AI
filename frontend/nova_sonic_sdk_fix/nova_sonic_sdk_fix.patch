@@ -1,0 +1,51 @@
+--- a/backend/app/services/voice/nova_sonic_driver.py
++++ b/backend/app/services/voice/nova_sonic_driver.py
+@@ -62,9 +62,13 @@
+         self._model_id = model_id or getattr(settings, "BEDROCK_MODEL_ID", "amazon.nova-2-5-sonic")
+         self._region_name = region_name or settings.AWS_REGION
+         self._profile_name = profile_name or getattr(settings, "AWS_PROFILE", None)
+-        self._transport = transport or BedrockCRTStreamTransport(
+-            profile_name=self._profile_name,
+-        )
++        # Prefer AWS's generated SDK for SigV4 and EventStream framing.
++        # Injected test transports are preserved unchanged.
++        if transport is not None:
++            self._transport = transport
++        else:
++            from app.services.voice.sdk_transport import BedrockSDKStreamTransport
++            self._transport = BedrockSDKStreamTransport(profile_name=self._profile_name)
+         self._session_queues: Dict[str, asyncio.Queue] = {}
+         self._active_sessions: Dict[str, Dict[str, Any]] = {}
+ 
+@@ -219,11 +223,6 @@
+                 )
+             )
+ 
+-        except RuntimeError as exc:
+-            logger.warning(
+-                f"Bedrock stream transport not connected for session {session_id}: {exc}. "
+-                "Running in offline stub mode. Configure AWS credentials to activate live duplex stream."
+-            )
+         except Exception as exc:
+             logger.error(f"Unexpected error opening Bedrock duplex stream for session {session_id}: {exc}", exc_info=True)
+             self.release_session(session_id)
+@@ -234,6 +233,19 @@
+                     data={"error_type": "BedrockConnectionError", "message": f"Could not connect to Bedrock Nova Sonic: {exc}"},
+                 )
+             )
++            # A failed live connection must not be reported as a started session.
++            session_meta = self._active_sessions.pop(session_id, None)
++            if session_meta:
++                for task_key in ("watchdog_task", "receiver_task"):
++                    task = session_meta.get(task_key)
++                    if task and not task.done():
++                        task.cancel()
++            if connection is not None:
++                try:
++                    await connection.close()
++                except Exception:
++                    logger.debug("Error closing failed Bedrock stream", exc_info=True)
++            return
+ 
+         # Emit standard session started event to application queue
+         await queue.put(

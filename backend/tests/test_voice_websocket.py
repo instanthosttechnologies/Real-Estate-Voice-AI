@@ -57,6 +57,16 @@ def override_ws_db(test_engine):
     voice_ws.get_db_session = original
 
 
+@pytest.fixture(autouse=True)
+def override_ws_driver():
+    from app.api.v1 import voice_ws
+    from app.services.voice.mock_driver import MockVoiceDriver
+    original = voice_ws.get_voice_driver
+    voice_ws.get_voice_driver = lambda: MockVoiceDriver(enable_synthetic_tones=True)
+    yield
+    voice_ws.get_voice_driver = original
+
+
 @pytest.fixture
 def auth_tokens(test_db: Session):
     # Customer user
@@ -318,3 +328,171 @@ def test_voice_ws_transcript_encryption_and_audit(auth_tokens, test_db: Session)
     assert "VOICE_SESSION_STARTED" in actions
     assert "VOICE_TOOL_EXECUTED" in actions
     assert "VOICE_SESSION_COMPLETED" in actions
+
+
+# =============================================================================
+# PERMANENT VOICE AUTHENTICATION & TOKEN LIFECYCLE TESTS
+# =============================================================================
+
+def test_voice_ws_fresh_verified_customer_token(test_db: Session):
+    """
+    Requirement 9: Fresh OTP-verified customer session connects, authenticates,
+    starts the voice session, and logs audit events cleanly with user_id=None
+    (preventing foreign key constraint violations against users table).
+    """
+    from app.api.v1.auth import _customer_token
+    from datetime import datetime, timezone
+
+    client = TestClient(app)
+    cust_id = uuid.uuid4()
+    cust = Customer(
+        id=cust_id,
+        user_id=None,  # Passwordless customer has no record in users table
+        full_name="Rajesh Verma",
+        phone="+919811122233",
+        email="rajesh.verma@example.com",
+        is_verified=True,
+    )
+    test_db.add(cust)
+    test_db.commit()
+
+    cust_token = _customer_token(cust, verified=True)
+    session_id = f"voice_fresh_cust_{uuid.uuid4().hex[:8]}"
+
+    with client.websocket_connect(f"/ws/voice/{session_id}") as ws:
+        ws.send_text(json.dumps({"type": "auth", "token": cust_token}))
+
+        # 1. Expect session_started
+        start_raw = ws.receive_text()
+        start_data = json.loads(start_raw)
+        assert start_data["type"] == "session_started"
+        assert start_data["session_id"] == session_id
+
+        # 2. Expect greeting
+        greet_raw = ws.receive_text()
+        greet_data = json.loads(greet_raw)
+        assert greet_data["type"] == "transcript"
+
+        ws.send_text(json.dumps({"type": "stop"}))
+
+    # Verify conversation created with correct customer_id
+    conv = test_db.execute(select(Conversation).where(Conversation.session_id == session_id)).scalar_one_or_none()
+    assert conv is not None
+    assert conv.customer_id == cust_id
+
+    # Verify audit log recorded without foreign key violation
+    audits = test_db.execute(
+        select(AuditLog).where(AuditLog.resource_id == session_id)
+    ).scalars().all()
+    assert len(audits) >= 1
+    for a in audits:
+        assert a.user_id is None  # Safe: must be None for customer without user record
+        assert a.user_role == "customer"
+
+
+def test_voice_ws_expired_token(test_db: Session):
+    """
+    Requirement 9: An expired JWT must be strictly rejected with WS 1008
+    and reason 'Invalid or expired authentication token.'
+    """
+    from datetime import timedelta
+    client = TestClient(app)
+
+    expired_token = create_access_token(
+        data={"sub": str(uuid.uuid4()), "role": "customer", "is_verified": True},
+        expires_delta=timedelta(seconds=-120),  # Expired 2 minutes ago
+    )
+    session_id = f"voice_expired_{uuid.uuid4().hex[:8]}"
+
+    with client.websocket_connect(f"/ws/voice/{session_id}") as ws:
+        ws.send_text(json.dumps({"type": "auth", "token": expired_token}))
+        close_frame = ws.receive()
+        assert close_frame["type"] == "websocket.close"
+        assert close_frame["code"] == 1008
+
+
+def test_voice_ws_invalid_token():
+    """
+    Requirement 9: Invalid or tampered tokens must be strictly rejected with WS 1008.
+    """
+    client = TestClient(app)
+    session_id = f"voice_invalid_{uuid.uuid4().hex[:8]}"
+
+    with client.websocket_connect(f"/ws/voice/{session_id}") as ws:
+        ws.send_text(json.dumps({"type": "auth", "token": "not.a.valid.jwt.token"}))
+        close_frame = ws.receive()
+        assert close_frame["type"] == "websocket.close"
+        assert close_frame["code"] == 1008
+
+
+def test_voice_ws_bearer_prefix_tolerance(test_db: Session):
+    """
+    Requirement 4: Clients passing 'Bearer <token>' in the handshake frame
+    must be cleanly tolerated and authenticated without policy failure.
+    """
+    from app.api.v1.auth import _customer_token
+    client = TestClient(app)
+
+    cust = Customer(
+        id=uuid.uuid4(),
+        full_name="Anita Roy",
+        phone="+919822233344",
+        email="anita.roy@example.com",
+        is_verified=True,
+    )
+    test_db.add(cust)
+    test_db.commit()
+
+    raw_token = _customer_token(cust, verified=True)
+    bearer_token = f"Bearer {raw_token}"
+    session_id = f"voice_bearer_{uuid.uuid4().hex[:8]}"
+
+    with client.websocket_connect(f"/ws/voice/{session_id}") as ws:
+        ws.send_text(json.dumps({"type": "auth", "token": bearer_token}))
+        start_raw = ws.receive_text()
+        start_data = json.loads(start_raw)
+        assert start_data["type"] == "session_started"
+        ws.send_text(json.dumps({"type": "stop"}))
+
+
+def test_voice_ws_backend_restart_persistence(test_db: Session):
+    """
+    Requirement 5 & 9: Simulates server reload/restart ensuring that SECRET_KEY
+    remains stable, and tokens generated prior to restart remain authentic and valid.
+    """
+    from app.core.config import settings
+    from app.core.security import decode_access_token
+    from app.api.v1.auth import _customer_token
+
+    # Verify SECRET_KEY is deterministic and non-empty
+    assert settings.SECRET_KEY is not None
+    assert len(settings.SECRET_KEY) >= 32
+
+    cust = Customer(
+        id=uuid.uuid4(),
+        full_name="Kavita Nair",
+        phone="+919833344455",
+        email="kavita.nair@example.com",
+        is_verified=True,
+    )
+    test_db.add(cust)
+    test_db.commit()
+
+    token = _customer_token(cust, verified=True)
+
+    # Decode and verify
+    claims = decode_access_token(token)
+    assert claims["customer_id"] == str(cust.id)
+    assert claims["is_verified"] is True
+
+    # Re-connect through a fresh TestClient representing a restarted server session
+    fresh_client = TestClient(app)
+    session_id = f"voice_restart_{uuid.uuid4().hex[:8]}"
+
+    with fresh_client.websocket_connect(f"/ws/voice/{session_id}") as ws:
+        ws.send_text(json.dumps({"type": "auth", "token": token}))
+        start_raw = ws.receive_text()
+        start_data = json.loads(start_raw)
+        assert start_data["type"] == "session_started"
+        ws.send_text(json.dumps({"type": "stop"}))
+

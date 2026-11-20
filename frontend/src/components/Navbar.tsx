@@ -2,7 +2,8 @@
 
 import React from "react";
 import Link from "next/link";
-import { Building2, LogOut, Shield, User as UserIcon } from "lucide-react";
+import Image from "next/image";
+import { LogOut, User as UserIcon } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 
 export function Navbar() {
@@ -13,7 +14,7 @@ export function Navbar() {
   const roleBadgeColor = {
     customer: "bg-emerald-50 text-emerald-700 border-emerald-200",
     admin: "bg-blue-50 text-blue-700 border-blue-200",
-    super_owner: "bg-purple-50 text-purple-700 border-purple-200",
+    super_owner: "bg-sky-50 text-sky-700 border-sky-200",
   }[session.role];
 
   const roleLabel = {
@@ -23,16 +24,20 @@ export function Navbar() {
   }[session.role];
 
   return (
-    <header className="sticky top-0 z-50 bg-white border-b border-slate-200 shadow-sm">
+    <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-sky-100 shadow-xs">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         <div className="flex items-center space-x-3">
-          <div className="h-10 w-10 rounded-lg bg-emerald-600 flex items-center justify-center text-white shadow-sm">
-            <Building2 className="h-6 w-6" />
-          </div>
+          <Image
+            src="/brainmagic-logo.png"
+            alt="Brain Magic Logo"
+            width={32}
+            height={66}
+            className="h-8 md:h-10 w-auto object-contain flex-shrink-0"
+            priority
+          />
           <div>
-            <span className="text-lg font-bold text-slate-900 tracking-tight">RealEstate Voice AI</span>
-            <span className="hidden sm:inline-block ml-2 text-xs font-semibold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600">
-              Nova 2.5 Sonic
+            <span className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+              Brain Magic RealEstate Voice AI
             </span>
           </div>
         </div>

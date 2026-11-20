@@ -2,7 +2,7 @@ import abc
 import enum
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
 
 class VoiceEventType(str, enum.Enum):
@@ -12,6 +12,8 @@ class VoiceEventType(str, enum.Enum):
     TOOL_USE_REQUEST = "tool_use_request"
     TOOL_USE_RESULT = "tool_use_result"
     INTERRUPTED = "interrupted"
+    SESSION_WARNING = "session_warning"
+    SESSION_COMPLETED = "session_completed"
     SESSION_ENDED = "session_ended"
     ERROR = "error"
 
@@ -79,6 +81,9 @@ class VoiceDriver(abc.ABC):
         prompt_preamble: str,
         tools: List[Dict[str, Any]],
         audio_format: AudioFormat = AudioFormat.PCM_24KHZ_16BIT_MONO,
+        max_duration: Optional[int] = None,
+        preamble_callback: Optional[Callable[[], str]] = None,
+        customer_name: Optional[str] = None,
     ) -> None:
         """Initializes a bidirectional streaming session with the voice model."""
         pass
@@ -113,6 +118,17 @@ class VoiceDriver(abc.ABC):
     async def end_session(self, session_id: str) -> None:
         """Terminates the voice session and releases associated resources."""
         pass
+
+    async def renew_stream(
+        self,
+        session_id: str,
+        updated_preamble: Optional[str] = None,
+    ) -> bool:
+        """
+        Renews the underlying upstream stream connection while maintaining
+        the active logical session, session queue, and client conversation.
+        """
+        return True
 
     @abc.abstractmethod
     async def receive_events(self, session_id: str) -> AsyncIterator[VoiceServerEvent]:

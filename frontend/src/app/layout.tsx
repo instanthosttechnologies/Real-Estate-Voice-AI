@@ -5,7 +5,7 @@ import { Navbar } from "@/components/Navbar";
 import { RobotVoiceWidget } from "@/components/RobotVoiceWidget";
 
 export const metadata = {
-  title: "Real Estate Agentic Voice AI",
+  title: "BrainMagic Voice AI",
   description: "Production Voice AI Agent powered by Amazon Nova 2.5 Sonic",
 };
 

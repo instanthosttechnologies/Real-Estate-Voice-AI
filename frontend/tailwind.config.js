@@ -8,6 +8,20 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        theme: {
+          bg: "#FFFFFF",
+          secondary: "#F8FAFC",
+          sky: "#F0F9FF",
+          section: "#E0F2FE",
+          primary: "#0284C7",
+          hover: "#0369A1",
+          border: "#DBEAFE",
+          text: "#0F172A",
+          muted: "#475569",
+          success: "#059669",
+          warning: "#D97706",
+          error: "#DC2626",
+        },
         brand: {
           50: "#f0fdf4",
           100: "#dcfce7",

@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { clearStoredSession, getValidAccessToken } from "@/lib/api";
 import { VoiceClient, VoiceState } from "@/lib/voice-client";
 import { RobotState, mapBackendEventToRobotState, ROBOT_STATE_CONFIGS } from "@/lib/robot-state-machine";
 import { RobotAvatar3D } from "./RobotAvatar3D";
@@ -24,6 +26,7 @@ interface RobotVoiceWidgetProps {
 }
 
 export function RobotVoiceWidget({ initialOpen = false }: RobotVoiceWidgetProps) {
+  const router = useRouter();
   const { session } = useAuth();
   const [isOpen, setIsOpen] = useState(initialOpen);
   const [robotState, setRobotState] = useState<RobotState>("IDLE");
@@ -82,8 +85,10 @@ export function RobotVoiceWidget({ initialOpen = false }: RobotVoiceWidgetProps)
 
   // Start voice session (ONLY upon deliberate user click)
   const handleStartSession = useCallback(async () => {
-    if (!session?.accessToken) {
-      setErrorMessage("Please log in to speak with the Real Estate Voice AI.");
+    const validToken = await getValidAccessToken();
+    if (!validToken) {
+      setErrorMessage("Your session has expired or requires verification. Please log in to speak with the Voice AI.");
+      setRobotState("ERROR");
       return;
     }
 
@@ -94,7 +99,7 @@ export function RobotVoiceWidget({ initialOpen = false }: RobotVoiceWidgetProps)
     const sessionId = `customer_session_${Date.now()}`;
     const client = new VoiceClient({
       sessionId,
-      accessToken: session.accessToken,
+      accessToken: validToken,
       onStateChange: (state) => {
         setVoiceState(state);
         if (state === "connecting") {
@@ -107,6 +112,8 @@ export function RobotVoiceWidget({ initialOpen = false }: RobotVoiceWidgetProps)
           setRobotState("THINKING");
         } else if (state === "interrupted") {
           setRobotState("LISTENING");
+        } else if (state === "completed") {
+          setRobotState("HAPPY");
         } else if (state === "error") {
           setRobotState("ERROR");
         } else if (state === "idle") {
@@ -116,6 +123,12 @@ export function RobotVoiceWidget({ initialOpen = false }: RobotVoiceWidgetProps)
       onError: (err) => {
         setErrorMessage(err);
         setRobotState("ERROR");
+        if (err.includes("1008") || err.toLowerCase().includes("authentication") || err.toLowerCase().includes("expired")) {
+          clearStoredSession();
+        }
+      },
+      onSessionCompleted: () => {
+        setRobotState("HAPPY");
       },
       onSiteVisitBooked: (booking) => {
         setSiteVisitBooking(booking);
@@ -187,7 +200,7 @@ export function RobotVoiceWidget({ initialOpen = false }: RobotVoiceWidgetProps)
             aria-label="Open Real Estate Voice AI Assistant"
           >
             {/* 3D Robot Head Thumbnail */}
-            <div className="w-12 h-12 rounded-full bg-slate-950 flex items-center justify-center overflow-hidden border-2 border-white shadow-inner">
+            <div className="w-12 h-12 rounded-full bg-sky-50 flex items-center justify-center overflow-hidden border-2 border-sky-100 shadow-inner">
               <RobotAvatar3D
                 state={robotState}
                 mouthOpen={mouthOpen}
@@ -199,7 +212,7 @@ export function RobotVoiceWidget({ initialOpen = false }: RobotVoiceWidgetProps)
             <div className="flex flex-col text-left">
               <span className="text-xs font-bold text-slate-900 tracking-tight flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-sky-500" />
-                Nova Voice AI
+                Voice Assistance
               </span>
               <span className="text-[10px] font-semibold text-emerald-600 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
@@ -218,7 +231,7 @@ export function RobotVoiceWidget({ initialOpen = false }: RobotVoiceWidgetProps)
           role="dialog"
           aria-modal="true"
           aria-label="Real Estate Voice AI Conversation Panel"
-          className="w-[340px] sm:w-[390px] bg-white/95 backdrop-blur-xl border border-slate-200/90 rounded-3xl shadow-2xl overflow-hidden flex flex-col transition-all duration-300 transform animate-in fade-in zoom-in-95"
+          className="w-[340px] sm:w-[390px] bg-white/95 backdrop-blur-xl border border-sky-100 rounded-3xl shadow-2xl overflow-hidden flex flex-col transition-all duration-300 transform animate-in fade-in zoom-in-95"
         >
           {/* Header Bar */}
           <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 bg-slate-50/70">
@@ -322,24 +335,52 @@ export function RobotVoiceWidget({ initialOpen = false }: RobotVoiceWidgetProps)
 
           {/* Error Banner */}
           {errorMessage && (
-            <div className="mx-4 mt-3 p-3 bg-rose-50 border border-rose-200 rounded-2xl flex items-center space-x-2.5 text-rose-800 text-xs shadow-sm">
-              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-              <span className="flex-1">{errorMessage}</span>
+            <div className="mx-4 mt-3 p-3 bg-rose-50 border border-rose-200 rounded-2xl flex flex-col space-y-1.5 text-rose-800 text-xs shadow-sm">
+              <div className="flex items-center space-x-2.5">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                <span className="flex-1">{errorMessage}</span>
+              </div>
+              {!session?.accessToken && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsOpen(false);
+                    router.push("/login");
+                  }}
+                  className="text-left font-bold text-rose-900 hover:underline pt-0.5 ml-6"
+                >
+                  Go to Login page &rarr;
+                </button>
+              )}
             </div>
           )}
 
           {/* Interactive Voice Controls (VOICE-ONLY: Zero text chat) */}
           <div className="p-5 flex flex-col space-y-3 bg-white">
             {!isSessionActive ? (
-              // Start Button (Microphone is never activated until user clicks here)
-              <button
-                type="button"
-                onClick={handleStartSession}
-                className="w-full flex items-center justify-center space-x-2 py-3.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl shadow-lg shadow-emerald-600/25 transition-all transform active:scale-95 focus:outline-none focus:ring-4 focus:ring-emerald-200"
-              >
-                <Mic className="w-5 h-5" />
-                <span>Start Voice Conversation</span>
-              </button>
+              !session?.accessToken ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsOpen(false);
+                    router.push("/login");
+                  }}
+                  className="w-full flex items-center justify-center space-x-2 py-3.5 px-4 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-2xl shadow-lg shadow-sky-600/25 transition-all transform active:scale-95 focus:outline-none focus:ring-4 focus:ring-sky-200"
+                >
+                  <Sparkles className="w-5 h-5" />
+                  <span>Log In to Speak with AI</span>
+                </button>
+              ) : (
+                // Start Button (Microphone is never activated until user clicks here)
+                <button
+                  type="button"
+                  onClick={handleStartSession}
+                  className="w-full flex items-center justify-center space-x-2 py-3.5 px-4 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-2xl shadow-lg shadow-sky-600/25 transition-all transform active:scale-95 focus:outline-none focus:ring-4 focus:ring-sky-200"
+                >
+                  <Mic className="w-5 h-5" />
+                  <span>{voiceState === "error" ? "Retry Voice Conversation" : "Start Voice Conversation"}</span>
+                </button>
+              )
             ) : (
               // Active Conversation Controls
               <div className="flex items-center justify-between gap-2.5">
@@ -387,7 +428,7 @@ export function RobotVoiceWidget({ initialOpen = false }: RobotVoiceWidgetProps)
 
             {/* Privacy & Compliance Assurance Notice */}
             <p className="text-[10px] text-center text-slate-400 font-medium pt-1">
-              Voice-only AI powered by Amazon Nova 2.5 Sonic. No text transcripts displayed.
+              Voice Assistance • Real-time property advisor
             </p>
           </div>
         </div>

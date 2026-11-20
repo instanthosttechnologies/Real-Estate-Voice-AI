@@ -1,8 +1,14 @@
+import json
 from typing import Any, Dict, List
 from app.services.agent.dispatcher import AGENT_TOOL_REGISTRY
 
 
 TOOL_DESCRIPTIONS: Dict[str, str] = {
+    "query_active_dataset": (
+        "Query the active verified real estate portfolio dataset for developers (DLF, Godrej, Lodha, Oberoi, Prestige, Sobha, etc.), "
+        "projects, cities (Gurugram, Mumbai, Bengaluru, Pune, etc.), configurations (2BHK, 3BHK, Penthouses, Offices, Plots), "
+        "and amenities. Returns concise, verified facts directly from the active dataset."
+    ),
     "search_properties": (
         "Search genuine database properties by city, location keyword, developer, project, property type, "
         "BHK configuration, budget, ISO currency (e.g. USD, INR), carpet area, and amenities. "
@@ -61,33 +67,108 @@ TOOL_DESCRIPTIONS: Dict[str, str] = {
 }
 
 
+def _sanitize_property(prop: Dict[str, Any], defs: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Recursively cleans and normalizes a property schema to comply with Amazon Bedrock
+    Nova Sonic strict JSON schema requirements:
+    - Inlines all $ref references from definitions.
+    - Flattens anyOf/oneOf union types with null into clean primitive types.
+    - Strips title, $defs, $ref, and complex combinators that trigger validationException.
+    - Preserves parameter descriptions and nested object properties.
+    """
+    # 1. Resolve $ref
+    if "$ref" in prop:
+        ref_path = prop["$ref"]
+        ref_name = ref_path.split("/")[-1]
+        if ref_name in defs:
+            resolved = defs[ref_name].copy()
+            return _sanitize_schema(resolved, defs)
+        return {"type": "object", "properties": {}}
+
+    # 2. Flatten anyOf (e.g. Union[str, None] or Union[Decimal, str, None])
+    if "anyOf" in prop:
+        non_null_variants = [v for v in prop["anyOf"] if v.get("type") != "null"]
+        if non_null_variants:
+            primary = non_null_variants[0]
+            cleaned = _sanitize_property(primary, defs)
+            if "description" in prop and "description" not in cleaned:
+                cleaned["description"] = prop["description"]
+            if "default" in prop and prop["default"] is not None:
+                cleaned["default"] = prop["default"]
+            return cleaned
+        return {"type": "string"}
+
+    cleaned: Dict[str, Any] = {}
+    prop_type = prop.get("type")
+    if prop_type:
+        cleaned["type"] = prop_type
+    elif "properties" in prop:
+        cleaned["type"] = "object"
+
+    if "description" in prop:
+        cleaned["description"] = prop["description"]
+
+    if prop.get("type") == "array" and "items" in prop:
+        cleaned["items"] = _sanitize_property(prop["items"], defs)
+
+    if prop.get("type") == "object" or "properties" in prop:
+        cleaned["type"] = "object"
+        cleaned["properties"] = {
+            k: _sanitize_property(v, defs) for k, v in prop.get("properties", {}).items()
+        }
+        if "required" in prop:
+            cleaned["required"] = prop["required"]
+
+    if "enum" in prop:
+        cleaned["enum"] = prop["enum"]
+
+    return cleaned
+
+
+def _sanitize_schema(schema: Dict[str, Any], defs: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Produces a top-level JSON Schema strictly conforming to Bedrock Nova requirements:
+    root type MUST be 'object', with only 'type', 'properties', and 'required' permitted.
+    """
+    properties: Dict[str, Any] = {}
+    for prop_name, prop_val in schema.get("properties", {}).items():
+        properties[prop_name] = _sanitize_property(prop_val, defs)
+
+    required: List[str] = schema.get("required", [])
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": required,
+    }
+
+
 def get_agent_tools_spec() -> List[Dict[str, Any]]:
     """
     Generates Amazon Nova 2.5 Sonic / Bedrock compatible JSON tool specifications
-    from the 13 validated Pydantic schemas in AGENT_TOOL_REGISTRY.
+    from the validated Pydantic schemas in AGENT_TOOL_REGISTRY.
+    Guarantees:
+    - Zero $defs or $ref references (all nested models inlined).
+    - Zero anyOf/oneOf union types (flattened to compliant primitive/object types).
+    - Strict object root schema conforming to Amazon Bedrock Nova specifications.
     """
     tools_spec: List[Dict[str, Any]] = []
 
     for tool_name, (schema_cls, _) in AGENT_TOOL_REGISTRY.items():
-        # Generate Pydantic JSON Schema
-        schema = schema_cls.model_json_schema()
+        raw_schema = schema_cls.model_json_schema()
+        defs = raw_schema.get("$defs", {})
+        cleaned_json_schema = _sanitize_schema(raw_schema, defs)
 
-        # Clean schema definitions for LLM tool consumption
-        clean_properties = schema.get("properties", {})
-        required_fields = schema.get("required", [])
-
-        description = TOOL_DESCRIPTIONS.get(tool_name, schema.get("description", f"Execute {tool_name}"))
+        description = TOOL_DESCRIPTIONS.get(
+            tool_name,
+            raw_schema.get("description", f"Execute {tool_name}")
+        )
 
         tool_def = {
             "toolSpec": {
                 "name": tool_name,
                 "description": description,
                 "inputSchema": {
-                    "json": {
-                        "type": "object",
-                        "properties": clean_properties,
-                        "required": required_fields,
-                    }
+                    "json": cleaned_json_schema
                 },
             }
         }

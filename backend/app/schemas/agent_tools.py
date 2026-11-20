@@ -122,6 +122,14 @@ class TransferToHumanToolInput(BaseModel):
     conversation_summary: Optional[str] = None
 
 
+class QueryActiveDatasetToolInput(BaseModel):
+    query: str = Field(..., description="Natural language search inquiry, e.g. 'DLF 2BHK in Gurugram' or 'Godrej projects with clubhouse'")
+    developer: Optional[str] = Field(None, description="Developer or company name e.g. 'DLF', 'Godrej', 'Lodha'")
+    city: Optional[str] = Field(None, description="City or primary location e.g. 'Gurugram', 'Mumbai', 'Bengaluru'")
+    configuration: Optional[str] = Field(None, description="BHK or layout e.g. '2BHK', '3BHK', 'Penthouse'")
+    limit: int = Field(default=4, ge=1, le=10, description="Max matching records to return")
+
+
 # Alias for explicit handoff semantics
 RequestHumanHandoffToolInput = TransferToHumanToolInput
 

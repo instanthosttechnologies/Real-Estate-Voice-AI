@@ -55,16 +55,31 @@ runTest("WebSocket client uses explicit JSON auth handshake and no query-string 
 });
 
 // ----------------------------------------------------------------------------
-// TEST 3: Customer Portal Voice-First Privacy (Zero Chat History / Transcripts)
+// TEST 3: Customer Portal Live Conversation Panel & Voice-Driven Architecture
 // ----------------------------------------------------------------------------
-runTest("Customer portal displays strictly NO chat transcript, chat history, or text messages", () => {
+runTest("Customer portal displays live two-sided conversation transcript with zero manual text inputs", () => {
   const customerSrc = fs.readFileSync(path.join(rootDir, "src/app/customer/page.tsx"), "utf8");
 
-  // Ensure no chat history UI components or state exists
-  assert(!customerSrc.includes("chatHistory"), "Customer portal must not track chatHistory");
-  assert(!customerSrc.includes("transcriptHistory"), "Customer portal must not display transcriptHistory");
-  assert(!customerSrc.includes("userMessage"), "Customer portal must not render user text messages");
-  assert(!customerSrc.includes("agentMessage"), "Customer portal must not render agent text messages");
+  // Verify live conversation transcript panel & speaker labels
+  assert(customerSrc.includes("Live Conversation"), "Customer portal must display Live Conversation panel");
+  assert(customerSrc.includes("Robot"), "Customer portal must label Robot speaker");
+  assert(customerSrc.includes("Customer"), "Customer portal must label Customer speaker");
+  assert(customerSrc.includes("onTranscript"), "Customer portal must wire onTranscript handler");
+  assert(customerSrc.includes("Real-time voice conversation"), "Subtitle must be 'Real-time voice conversation'");
+
+  // Layout architecture: Initial centered presentation vs active 2-column layout
+  assert(customerSrc.includes("conversationStarted &&"), "Transcript panel must only be rendered when conversation has started");
+  assert(customerSrc.includes("lg:col-span-7 order-2 lg:order-1"), "Transcript panel must be left column on desktop and underneath on mobile");
+  assert(customerSrc.includes("lg:col-span-5 order-1 lg:order-2"), "Robot avatar must be right column on desktop and on top on mobile");
+  assert(customerSrc.includes('key="customer-robot-avatar"'), "Robot avatar must retain persistent key to avoid Three.js remounting");
+
+  // Automatic greeting & session start wiring
+  assert(customerSrc.includes("onSessionStarted"), "Must handle onSessionStarted for automatic personalized greeting");
+  assert(customerSrc.includes('"GREETING"'), "Must transition to GREETING state on session initialization");
+
+  // Ensure speech-first interaction: NO manual text typing inputs
+  assert(!customerSrc.includes("<input"), "Customer portal must not have text input fields");
+  assert(!customerSrc.includes("<textarea"), "Customer portal must not have textarea input fields");
 
   // Must have microphone & voice controls
   assert(customerSrc.includes("VoiceOrb"), "Customer portal must feature VoiceOrb audio visualizer");

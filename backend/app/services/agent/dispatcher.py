@@ -19,6 +19,7 @@ from app.schemas.agent_tools import (
     TransferToHumanToolInput,
     UpdateLeadToolInput,
     CalculateLeadPriorityToolInput,
+    QueryActiveDatasetToolInput,
 )
 from app.services.agent import tools
 
@@ -27,6 +28,7 @@ logger = logging.getLogger("agent_dispatcher")
 # Registry: tool_name -> (Schema, Function)
 AGENT_TOOL_REGISTRY: Dict[str, Tuple[Type[BaseModel], Callable[[Session, Any], AgentToolResponse]]] = {
     "search_properties": (SearchPropertiesToolInput, tools.tool_search_properties),
+    "query_active_dataset": (QueryActiveDatasetToolInput, tools.tool_query_active_dataset),
     "get_property_details": (GetPropertyDetailsToolInput, tools.tool_get_property_details),
     "get_property_price": (GetPropertyPriceToolInput, tools.tool_get_property_price),
     "check_property_availability": (CheckPropertyAvailabilityToolInput, tools.tool_check_property_availability),

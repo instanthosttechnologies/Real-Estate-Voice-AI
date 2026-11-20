@@ -1,12 +1,16 @@
 import os
+from pathlib import Path
 import secrets
 from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+DOTENV_PATH = BACKEND_DIR / ".env"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(str(DOTENV_PATH), ".env"),
         env_file_encoding="utf-8",
         extra="ignore"
     )
@@ -41,12 +45,21 @@ class Settings(BaseSettings):
         "sqlite+aiosqlite:///:memory:"
     )
 
-    # Voice AI & AWS Bedrock
+    # Voice AI & 10-Minute Continuous Voice Conversation
     USE_MOCK_VOICE: bool = True  # Mandatory default for zero-cost credential-free dev
     LIVE_TEST_APPROVED: bool = False  # Mandatory safety latch: must be True to allow live Bedrock inference
+    LOCAL_VOICE_TEST_MODE: bool = False  # Temporary zero-auth local voice test mode (loopback only)
+    ENABLE_AUTOMATIC_GREETING: bool = False  # Disabled by default: restores known-working microphone-first path
     MAX_CONCURRENT_LIVE_SESSIONS: int = 1  # Maximum concurrent live test sessions
-    LIVE_TEST_MAX_SESSION_SECONDS: int = 60  # Strict short duration limit (60 seconds) for preflight/live tests
+    LIVE_TEST_MAX_SESSION_SECONDS: int = 600  # Duration limit for preflight/live tests (600s / 10 min)
+    VOICE_SESSION_LOCAL_DEV_DURATION_SECONDS: int = 600  # 600s (10 min) for local voice-test sandbox
+    VOICE_SESSION_CUSTOMER_DURATION_SECONDS: int = 600  # 600s (10 min) for standard customer sessions
+    VOICE_SESSION_MAX_DURATION_SECONDS: int = 600  # 600s (10 min) total conversation ceiling
+    AWS_BEDROCK_STREAM_MAX_DURATION_SECONDS: int = 360  # 360s (6 min) max per AWS stream before auto-renewal
+    MAX_STREAM_RENEWALS: int = 2  # Maximum stream renewals per session (up to 3 streams total)
+    SESSION_EXPIRY_WARNING_SECONDS: int = 30  # Advance warning at 9m30s (570s) before completion at 10m (600s)
     DRY_RUN_TEST_MODE: bool = False  # When True, prevents production database writes during live testing
+    DIAGNOSTIC_MINIMAL_VOICE_MODE: bool = False  # When True, starts Nova Sonic with zero tools and minimal prompt
     BEDROCK_MODEL_ID: str = "amazon.nova-2-5-sonic"
     AWS_PROFILE: Optional[str] = os.getenv("AWS_PROFILE", None)
     AWS_REGION: str = os.getenv("AWS_REGION", "ap-northeast-1")
@@ -59,8 +72,9 @@ class Settings(BaseSettings):
     NOVA_SONIC_TEMPERATURE: float = 0.7
     NOVA_SONIC_TOP_P: float = 0.9
     NOVA_SONIC_MAX_TOKENS: int = 1024
-    NOVA_SONIC_INPUT_SAMPLE_RATE: int = 24000
+    NOVA_SONIC_INPUT_SAMPLE_RATE: int = 16000
     NOVA_SONIC_OUTPUT_SAMPLE_RATE: int = 24000
+    NOVA_SONIC_ENDPOINTING_SENSITIVITY: str = "HIGH"  # HIGH (~1.5s pause) for fast natural turn-taking
 
     # Storage Paths
     UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "storage/uploads")
