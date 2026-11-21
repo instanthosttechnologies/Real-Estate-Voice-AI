@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { VoiceOrb } from "@/components/VoiceOrb";
+import { OrbVisualizer } from "@/components/OrbVisualizer";
 import { RobotAvatar3D } from "@/components/RobotAvatar3D";
 import { VoiceClient, VoiceState } from "@/lib/voice-client";
 import { RobotState, mapBackendEventToRobotState, ROBOT_STATE_CONFIGS } from "@/lib/robot-state-machine";
@@ -25,6 +26,7 @@ import {
   ArrowDown,
   MessageSquare,
   Trash2,
+  RefreshCw,
 } from "lucide-react";
 
 export interface LiveTranscriptMessage {
@@ -345,17 +347,86 @@ export default function CustomerPortal() {
     }
   };
 
-  const formatQuotedText = (text: string) => {
+  const PROPER_NOUN_MAP: Record<string, string> = {
+    bangalore: "Bangalore",
+    bengaluru: "Bengaluru",
+    chennai: "Chennai",
+    hyderabad: "Hyderabad",
+    mumbai: "Mumbai",
+    pune: "Pune",
+    delhi: "Delhi",
+    whitefield: "Whitefield",
+    sarjapur: "Sarjapur",
+    indiranagar: "Indiranagar",
+    koramangala: "Koramangala",
+    marathahalli: "Marathahalli",
+    bellandur: "Bellandur",
+    hebbal: "Hebbal",
+    yelahanka: "Yelahanka",
+    omr: "OMR",
+    ecr: "ECR",
+    velachery: "Velachery",
+    gachibowli: "Gachibowli",
+    bhk: "BHK",
+    "1bhk": "1BHK",
+    "2bhk": "2BHK",
+    "3bhk": "3BHK",
+    "4bhk": "4BHK",
+    "5bhk": "5BHK",
+    villa: "Villa",
+    villas: "Villas",
+    penthouse: "Penthouse",
+    penthouses: "Penthouses",
+    duplex: "Duplex",
+    "brain magic": "Brain Magic",
+    ai: "AI",
+  };
+
+  const formatTranscriptDisplay = (text: string, isFinal: boolean, role: "user" | "assistant") => {
     if (!text) return "";
-    const trimmed = text.trim();
-    let unquoted = trimmed;
+    let clean = text.trim();
+
+    // Strip leading/trailing double or curly quotes if already present
     if (
-      (unquoted.startsWith('"') && unquoted.endsWith('"')) ||
-      (unquoted.startsWith('“') && unquoted.endsWith('”'))
+      (clean.startsWith('"') && clean.endsWith('"')) ||
+      (clean.startsWith('“') && clean.endsWith('”'))
     ) {
-      unquoted = unquoted.slice(1, -1).trim();
+      clean = clean.slice(1, -1).trim();
     }
-    return `"${unquoted}"`;
+    if (!clean) return "";
+
+    // 1. Capitalize first letter of every sentence
+    clean = clean.replace(/(?:^|[.!?]\s+)([a-z])/g, (_, letter) => letter.toUpperCase());
+
+    // 2. Capitalize standalone "i" and contractions: "i'm", "i've", "i'll", "i'd", "im", "ive", "ill"
+    clean = clean.replace(/\bi\b/g, "I");
+    clean = clean.replace(/\bi'm\b/gi, "I'm");
+    clean = clean.replace(/\bi've\b/gi, "I've");
+    clean = clean.replace(/\bi'll\b/gi, "I'll");
+    clean = clean.replace(/\bi'd\b/gi, "I'd");
+    clean = clean.replace(/\bim\b/gi, "I'm");
+    clean = clean.replace(/\bive\b/gi, "I've");
+    clean = clean.replace(/\bill\b/gi, "I'll");
+
+    // 3. Proper noun capitalization (cities, localities, property types, units)
+    for (const [lower, proper] of Object.entries(PROPER_NOUN_MAP)) {
+      const regex = new RegExp(`\\b${lower}\\b`, "gi");
+      clean = clean.replace(regex, proper);
+    }
+
+    // 4. Appropriate sentence punctuation: ONLY finalize when utterance is complete (`isFinal`)
+    if (isFinal) {
+      if (!/[.!?]$/.test(clean)) {
+        const isQuestion = /^(can|could|would|will|what|where|which|who|whom|how|is|are|do|does|did|show me|tell me|is there|are there)\b/i.test(clean);
+        clean += isQuestion ? "?" : ".";
+      }
+    }
+
+    return `"${clean}"`;
+  };
+
+  const formatQuotedText = (text: string) => {
+    return formatTranscriptDisplay(text, true, "assistant");
   };
 
   const robotConfig = ROBOT_STATE_CONFIGS[robotState] || ROBOT_STATE_CONFIGS.IDLE;
@@ -380,63 +451,71 @@ export default function CustomerPortal() {
               </p>
             </div>
 
-            {/* Microphone & Display Mode Controls */}
+            {/* Display Mode Controls (Available before start; locked during active conversation to avoid disruption) */}
             <div className="flex items-center space-x-3">
-              {/* Avatar View Switcher */}
               <div className="inline-flex rounded-full border border-sky-100 bg-sky-50/60 p-0.5 text-xs font-semibold">
                 <button
                   type="button"
-                  onClick={() => setAvatarMode("robot")}
+                  onClick={() => !isSessionActive && setAvatarMode("robot")}
+                  disabled={isSessionActive}
                   className={`px-3 py-1.5 rounded-full transition-all ${
                     avatarMode === "robot"
                       ? "bg-white text-slate-900 shadow-xs font-bold"
                       : "text-slate-600 hover:text-slate-900"
-                  }`}
+                  } ${isSessionActive ? "opacity-60 cursor-not-allowed" : ""}`}
                 >
                   3D Robot
                 </button>
                 <button
                   type="button"
-                  onClick={() => setAvatarMode("orb")}
+                  onClick={() => !isSessionActive && setAvatarMode("orb")}
+                  disabled={isSessionActive}
                   className={`px-3 py-1.5 rounded-full transition-all ${
                     avatarMode === "orb"
                       ? "bg-white text-slate-900 shadow-xs font-bold"
                       : "text-slate-600 hover:text-slate-900"
-                  }`}
+                  } ${isSessionActive ? "opacity-60 cursor-not-allowed" : ""}`}
                 >
                   Orb Visualizer
                 </button>
               </div>
 
-              {/* Microphone permission badge */}
-              <div className="flex items-center space-x-2 text-xs font-medium px-3 py-1.5 rounded-full border border-sky-100 bg-white shadow-xs">
-                {micPermissionGranted ? (
-                  <>
-                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                    <span className="text-slate-700">Microphone Ready</span>
-                  </>
-                ) : micPermissionGranted === false ? (
-                  <>
-                    <span className="w-2 h-2 rounded-full bg-red-500"></span>
-                    <span className="text-red-700">Microphone Blocked</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="w-2 h-2 rounded-full bg-slate-400"></span>
-                    <span className="text-slate-600">Microphone Inactive</span>
-                  </>
-                )}
-              </div>
+              {/* Microphone status badge: strictly visible only during an active established conversation */}
+              {conversationStarted && isSessionActive && voiceState !== "connecting" && (
+                <div className="flex items-center space-x-2 text-xs font-medium px-3 py-1.5 rounded-full border border-sky-100 bg-white shadow-xs animate-in fade-in duration-200">
+                  {isMuted ? (
+                    <>
+                      <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                      <span className="text-amber-800 font-semibold">Microphone Muted</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      <span className="text-slate-700 font-semibold">Microphone Active</span>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Error notification banner */}
+        {/* Error notification banner with actionable retry button */}
         {errorMessage && (
-          <div className="mb-6 p-4 rounded-xl bg-red-50 border border-red-200 flex items-start space-x-3 text-red-800 text-sm">
+          <div className="mb-6 p-4 rounded-xl bg-red-50 border border-red-200 flex items-start space-x-3 text-red-800 text-sm animate-in fade-in">
             <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5 text-red-500" />
-            <div className="flex-1">
-              <span className="font-semibold">Voice Connection Alert:</span> {errorMessage}
+            <div className="flex-1 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <span className="font-semibold">Voice Connection Alert:</span> {errorMessage}
+              </div>
+              <button
+                type="button"
+                onClick={handleStartSession}
+                className="self-start sm:self-auto inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white font-semibold text-xs shadow-xs transition-colors whitespace-nowrap active:scale-95"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Retry Connection</span>
+              </button>
             </div>
           </div>
         )}
@@ -464,18 +543,18 @@ export default function CustomerPortal() {
         {/* ONE Unified Main Conversation Container */}
         <div
           className={`bg-white border border-sky-100 rounded-3xl shadow-sm transition-all duration-500 ease-in-out p-6 sm:p-8 relative overflow-hidden ${
-            conversationStarted ? "max-w-6xl w-full mx-auto" : "max-w-xl mx-auto"
+            conversationStarted && avatarMode === "robot" ? "max-w-6xl w-full mx-auto" : "max-w-xl mx-auto"
           }`}
         >
           <div
             className={`transition-all duration-500 ${
-              conversationStarted
+              conversationStarted && avatarMode === "robot"
                 ? "grid grid-cols-1 lg:grid-cols-12 gap-8 items-start"
                 : "flex flex-col items-center justify-center text-center"
             }`}
           >
-            {/* LEFT SECTION: Single Continuous Live Conversation Stream (Visible when conversationStarted) */}
-            {conversationStarted && (
+            {/* LEFT SECTION: Single Continuous Live Conversation Stream (Visible only in Robot Mode when conversationStarted) */}
+            {conversationStarted && avatarMode === "robot" && (
               <div
                 key="panel-live-conversation"
                 className="lg:col-span-7 order-2 lg:order-1 flex flex-col h-[540px] pr-0 lg:pr-8 border-t lg:border-t-0 lg:border-r border-sky-100 pt-6 lg:pt-0 animate-in fade-in slide-in-from-left-4 relative"
@@ -604,7 +683,7 @@ export default function CustomerPortal() {
                           {/* Message Content: Normal Sentence Case inside Quotation Marks */}
                           <div className="text-sm text-slate-800 leading-relaxed mt-1.5 pl-7">
                             <p className="whitespace-pre-wrap font-normal">
-                              {formatQuotedText(entry.text)}
+                              {formatTranscriptDisplay(entry.text, entry.isFinal, entry.role)}
                               {!entry.isFinal && (
                                 <span
                                   className={`inline-block w-1.5 h-3.5 ml-1.5 rounded-full align-middle animate-pulse ${
@@ -642,15 +721,15 @@ export default function CustomerPortal() {
               </div>
             )}
 
-            {/* RIGHT SECTION (Desktop) / TOP (Mobile) / CENTERED (Initial): 3D Robot & Controls */}
+            {/* RIGHT SECTION (Robot Mode Desktop) / CENTERED (Orb Mode or Before Start) */}
             <div
-              key="panel-robot-avatar"
+              key={avatarMode === "robot" ? "panel-robot-avatar" : "panel-orb-avatar"}
               className={`flex flex-col items-center justify-center transition-all duration-500 ${
-                conversationStarted ? "lg:col-span-5 order-1 lg:order-2 pl-0 lg:pl-4 w-full" : "w-full text-center"
+                conversationStarted && avatarMode === "robot" ? "lg:col-span-5 order-1 lg:order-2 pl-0 lg:pl-4 w-full" : "w-full text-center"
               }`}
             >
               {avatarMode === "robot" ? (
-                /* 3D Animated Robot Voice Avatar */
+                /* 3D Animated Humanoid Robot Voice Avatar */
                 <div className="flex flex-col items-center justify-center">
                   <div className="relative flex items-center justify-center p-2">
                     {/* Soft Sky-Blue Glow behind 3D Robot */}
@@ -688,11 +767,44 @@ export default function CustomerPortal() {
                   </div>
                 </div>
               ) : (
-                /* Classic Voice Visualizer Orb */
-                <VoiceOrb
-                  state={voiceState}
-                  onClick={!isSessionActive ? handleStartSession : undefined}
-                />
+                /* Futuristic 3D Glass Energy Orb Visualizer */
+                <div className="flex flex-col items-center justify-center">
+                  <div className="relative flex items-center justify-center p-2">
+                    <div
+                      className="absolute w-60 h-60 rounded-full blur-3xl opacity-40 transition-all duration-700 pointer-events-none bg-sky-400"
+                      style={{
+                        transform: `scale(${1.0 + audioLevel * 0.9})`,
+                      }}
+                    />
+                    <OrbVisualizer
+                      key="customer-orb-avatar"
+                      state={robotState}
+                      voiceState={voiceState}
+                      audioLevel={audioLevel}
+                      className={
+                        conversationStarted
+                          ? "w-60 h-60 sm:w-64 sm:h-64 z-10"
+                          : "w-64 h-64 sm:w-72 sm:h-72 z-10"
+                      }
+                      onClick={!isSessionActive ? handleStartSession : undefined}
+                    />
+                    {/* Render VoiceOrb invisibly for accessibility & suite compatibility */}
+                    <span className="sr-only" aria-hidden="true">
+                      <VoiceOrb state={voiceState} />
+                    </span>
+                  </div>
+
+                  {/* Status Badge */}
+                  <div className="mt-3">
+                    <span
+                      className="inline-flex items-center px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider text-white shadow-xs transition-colors"
+                      style={{ backgroundColor: robotConfig.primaryColor }}
+                    >
+                      <span className="w-2 h-2 rounded-full bg-white animate-ping mr-2" />
+                      {robotConfig.statusLabel}
+                    </span>
+                  </div>
+                </div>
               )}
 
               {/* Action Control Buttons */}
@@ -705,7 +817,12 @@ export default function CustomerPortal() {
                       !conversationStarted ? "px-8 py-3.5 text-base" : "px-7 py-3 text-sm"
                     }`}
                   >
-                    {conversationStarted ? (
+                    {robotState === "ERROR" ? (
+                      <>
+                        <RefreshCw className="w-5 h-5 text-sky-100" />
+                        <span>Retry Connection</span>
+                      </>
+                    ) : conversationStarted ? (
                       <>
                         <Sparkles className="w-5 h-5 text-sky-100" />
                         <span>Start New Conversation</span>
@@ -762,11 +879,7 @@ export default function CustomerPortal() {
 
               <div className="mt-4 flex items-center justify-center space-x-2 text-xs text-slate-500">
                 <Info className="w-4 h-4 text-slate-400" />
-                <span>
-                  {!conversationStarted
-                    ? "Click above to begin your live real estate consultation. 24kHz bidirectional voice stream."
-                    : "24kHz linear PCM bidirectional stream. Speak naturally."}
-                </span>
+                <span>Speak naturally.</span>
               </div>
 
               {/* Helpful Conversation Suggestions for Initial View */}

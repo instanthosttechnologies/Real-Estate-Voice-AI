@@ -85,3 +85,4 @@ __pycache__/
 *.sqlite
 *.db
 db_backups/
+*.tsbuildinfo

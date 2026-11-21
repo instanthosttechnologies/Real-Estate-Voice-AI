@@ -141,77 +141,44 @@ export function RobotAvatarFallback({
         {/* Neck Pivot */}
         <rect x="112" y="125" width="16" height="15" rx="3" fill="#64748b" />
 
-        {/* Antenna */}
-        <line x1="120" y1="35" x2="120" y2="15" stroke="#94a3b8" strokeWidth="3" strokeLinecap="round" />
-        <circle
+        {/* Proportional Humanoid Sky-Blue Cranial Helmet */}
+        <ellipse
           cx="120"
-          cy="12"
-          r="6"
-          fill={config.primaryColor}
-          filter="url(#glow)"
-          className={state === "THINKING" ? "animate-ping" : ""}
-        />
-
-        {/* Left & Right Ear Sensor Rings */}
-        <rect x="54" y="68" width="8" height="24" rx="4" fill="#64748b" />
-        <circle
-          cx="58"
-          cy="80"
-          r="4"
-          fill={config.primaryColor}
-          filter="url(#glow)"
-        />
-
-        <rect x="178" y="68" width="8" height="24" rx="4" fill="#64748b" />
-        <circle
-          cx="182"
-          cy="80"
-          r="4"
-          fill={config.primaryColor}
-          filter="url(#glow)"
-        />
-
-        {/* Robot Head Outer Shell */}
-        <rect
-          x="62"
-          y="35"
-          width="116"
-          height="92"
-          rx="28"
-          fill="url(#bodyGrad)"
-          stroke="#94a3b8"
+          cy="75"
+          rx="58"
+          ry="50"
+          fill="#0284c7"
+          stroke="#0369a1"
           strokeWidth="2.5"
         />
 
-        {/* Dark High-Gloss Visor Screen */}
-        <rect
-          x="72"
-          y="46"
-          width="96"
-          height="70"
-          rx="18"
-          fill="url(#visorGrad)"
-          stroke="#334155"
-          strokeWidth="1.5"
-        />
-
-        {/* Visor Glare / Reflection Accent */}
+        {/* Sculpted Ceramic White Face Mask & Jawline */}
         <path
-          d="M 80 52 Q 120 46 150 56"
-          fill="none"
-          stroke="rgba(255, 255, 255, 0.25)"
+          d="M 75 70 C 75 48, 165 48, 165 70 C 165 102, 148 122, 120 125 C 92 122, 75 102, 75 70 Z"
+          fill="url(#bodyGrad)"
+          stroke="#cbd5e1"
           strokeWidth="2"
-          strokeLinecap="round"
         />
 
-        {/* Left Eye */}
+        {/* Left & Right Streamlined Ear Sensor Rings */}
+        <rect x="56" y="66" width="7" height="22" rx="3.5" fill="#0284c7" />
+        <circle cx="59.5" cy="77" r="4" fill="#00f5ff" filter="url(#glow)" />
+
+        <rect x="177" y="66" width="7" height="22" rx="3.5" fill="#0284c7" />
+        <circle cx="180.5" cy="77" r="4" fill="#00f5ff" filter="url(#glow)" />
+
+        {/* Sky-Blue Eyebrows */}
+        <line x1="86" y1="62" x2="104" y2="60" stroke="#0284c7" strokeWidth="2.5" strokeLinecap="round" />
+        <line x1="136" y1="60" x2="154" y2="62" stroke="#0284c7" strokeWidth="2.5" strokeLinecap="round" />
+
+        {/* Left Concentric Eye */}
         {eyeShape === "blink" || eyeShape === "closed" ? (
           <line
             x1="86"
             y1="75"
             x2="104"
             y2="75"
-            stroke={config.primaryColor}
+            stroke="#00f5ff"
             strokeWidth="3.5"
             strokeLinecap="round"
             filter="url(#glow)"
@@ -220,31 +187,27 @@ export function RobotAvatarFallback({
           <path
             d="M 86 78 Q 95 65 104 78"
             fill="none"
-            stroke={config.primaryColor}
+            stroke="#00f5ff"
             strokeWidth="3.5"
             strokeLinecap="round"
             filter="url(#glow)"
           />
         ) : (
-          <rect
-            x="86"
-            y="67"
-            width="18"
-            height="16"
-            rx="5"
-            fill={config.primaryColor}
-            filter="url(#glow)"
-          />
+          <g>
+            <circle cx="95" cy="74" r="10" fill="#00f5ff" filter="url(#glow)" />
+            <circle cx="95" cy="74" r="6" fill="#0284c7" />
+            <circle cx="97" cy="72" r="2" fill="#ffffff" />
+          </g>
         )}
 
-        {/* Right Eye */}
+        {/* Right Concentric Eye */}
         {eyeShape === "blink" || eyeShape === "closed" ? (
           <line
             x1="136"
             y1="75"
             x2="154"
             y2="75"
-            stroke={config.primaryColor}
+            stroke="#00f5ff"
             strokeWidth="3.5"
             strokeLinecap="round"
             filter="url(#glow)"
@@ -253,33 +216,18 @@ export function RobotAvatarFallback({
           <path
             d="M 136 78 Q 145 65 154 78"
             fill="none"
-            stroke={config.primaryColor}
+            stroke="#00f5ff"
             strokeWidth="3.5"
             strokeLinecap="round"
             filter="url(#glow)"
           />
-        ) : eyeShape === "confused" ? (
-          <rect
-            x="134"
-            y="64"
-            width="22"
-            height="22"
-            rx="6"
-            fill={config.primaryColor}
-            filter="url(#glow)"
-          />
         ) : (
-          <rect
-            x="136"
-            y="67"
-            width="18"
-            height="16"
-            rx="5"
-            fill={config.primaryColor}
-            filter="url(#glow)"
-          />
+          <g>
+            <circle cx="145" cy="74" r="10" fill="#00f5ff" filter="url(#glow)" />
+            <circle cx="145" cy="74" r="6" fill="#0284c7" />
+            <circle cx="147" cy="72" r="2" fill="#ffffff" />
+          </g>
         )}
-
         {/* Animated Mouth (Mouth height & width responsive to lip-sync) */}
         {state === "HAPPY" || state === "GREETING" ? (
           <path
