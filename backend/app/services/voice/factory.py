@@ -20,8 +20,11 @@ def get_voice_driver(override_mock: Optional[bool] = None) -> VoiceDriver:
     use_mock = settings.USE_MOCK_VOICE if override_mock is None else override_mock
 
     if use_mock:
-        logger.info("Initializing MockVoiceDriver (zero-cost offline mode).")
-        return MockVoiceDriver(model_id=settings.BEDROCK_MODEL_ID)
+        logger.info("Initializing MockVoiceDriver (zero-cost offline mode with audio playback).")
+        return MockVoiceDriver(
+            model_id=settings.BEDROCK_MODEL_ID,
+            enable_synthetic_tones=True,
+        )
 
     # Preflight Safe Latch: When activating live in environment, require explicit approval
     if override_mock is None and not getattr(settings, "LIVE_TEST_APPROVED", False):

@@ -107,73 +107,103 @@ export function RobotAvatar3D({
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.1;
+    renderer.toneMappingExposure = 1.15;
     rendererRef.current = renderer;
     container.appendChild(renderer.domElement);
 
-    // 3. Three-Point Studio Lighting (Key, Sky-Blue Rim, and Soft Fill)
-    const ambientLight = new THREE.AmbientLight(0xffffff, 1.1);
+    // 3. Three-Point Studio Lighting (Key, Sky-Blue Rim, and Soft Sky-Blue Fill)
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.25);
     scene.add(ambientLight);
 
-    const keyLight = new THREE.DirectionalLight(0xffffff, 2.4);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.5);
     keyLight.position.set(2.0, 3.0, 3.0);
     scene.add(keyLight);
 
-    const rimLight = new THREE.DirectionalLight(0x38bdf8, 3.0);
+    // Luminous Sky-Blue Rim definition
+    const rimLight = new THREE.DirectionalLight(0x38bdf8, 3.2);
     rimLight.position.set(-2.5, 2.0, -2.0);
     scene.add(rimLight);
 
-    const fillLight = new THREE.DirectionalLight(0x94a3b8, 1.2);
+    // Soft sky-blue fill light eliminating dark/murky shadows
+    const fillLight = new THREE.DirectionalLight(0xe0f2fe, 1.35);
     fillLight.position.set(0, -2.0, 2.0);
     scene.add(fillLight);
 
-    const pointLight = new THREE.PointLight(0x00f5ff, 3.5, 6.0);
+    // Glowing front blue detail point light
+    const pointLight = new THREE.PointLight(0x0ea5e9, 3.2, 6.0);
     pointLight.position.set(0, 0.3, 1.2);
     scene.add(pointLight);
     pointLightRef.current = pointLight;
 
-    // 4. Materials (High-grade ceramic white, metallic sky-blue helmet, titanium joints)
-    const whiteChassisMat = new THREE.MeshStandardMaterial({
-      color: 0xf8fafc,
-      roughness: 0.20,
-      metalness: 0.15,
-    });
+    // =========================================================================
+    // 4. APPROVED LIGHT WHITE + SKY BLUE PALETTE MATERIALS
+    // ZERO BLACK / ZERO DARK-GREY BODY PARTS OR JOINTS
+    // =========================================================================
 
-    const skyBlueHelmetMat = new THREE.MeshStandardMaterial({
-      color: 0x0284c7,
+    // Pure Brilliant White (#FFFFFF) - Head shell, face, chest, shoulders, lower arms, hands
+    const pureWhiteMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
       roughness: 0.18,
-      metalness: 0.55,
+      metalness: 0.08,
     });
 
-    const slateJointMat = new THREE.MeshStandardMaterial({
-      color: 0x334155,
-      roughness: 0.40,
-      metalness: 0.70,
+    // Light White Body (#F8FCFF) - Torso, upper arms, forehead contour
+    const mainBodyMat = new THREE.MeshStandardMaterial({
+      color: 0xf8fcff,
+      roughness: 0.22,
+      metalness: 0.10,
     });
 
-    const cyanEmissiveMat = new THREE.MeshBasicMaterial({
-      color: 0x00f5ff,
-      transparent: true,
-      opacity: 0.95,
+    // Soft Reflective Ceramic (#F0F9FF) - Jaw contouring, soft reflective surfaces
+    const softReflectiveMat = new THREE.MeshStandardMaterial({
+      color: 0xf0f9ff,
+      roughness: 0.15,
+      metalness: 0.12,
     });
 
-    const deepBlueEyeMat = new THREE.MeshBasicMaterial({
-      color: 0x0369a1,
+    // Light Sky-Blue (#E0F2FE) - Neck section, recessed collar armor, wrist joints
+    const lightSkyBlueMat = new THREE.MeshStandardMaterial({
+      color: 0xe0f2fe,
+      roughness: 0.25,
+      metalness: 0.20,
     });
 
-    const mouthMat = new THREE.MeshBasicMaterial({
+    // Medium Sky-Blue Highlight (#BAE6FD) - Elbow joints, arm articulation, hydraulic pistons, decorative trim
+    const jointSkyBlueMat = new THREE.MeshStandardMaterial({
+      color: 0xbae6fd,
+      roughness: 0.28,
+      metalness: 0.30,
+    });
+
+    // Sky Blue Accent (#38BDF8) - Eyebrows, ear pods, shoulder accent rings
+    const skyBlueAccentMat = new THREE.MeshStandardMaterial({
       color: 0x38bdf8,
+      roughness: 0.20,
+      metalness: 0.40,
+    });
+
+    // Glowing Sky-Blue Details (#0EA5E9) - Eyes, eye glow rings, reactor core, mouth accents
+    const glowingBlueDetailMat = new THREE.MeshBasicMaterial({
+      color: 0x0ea5e9,
       transparent: true,
       opacity: 0.95,
     });
 
-    const chestCoreMat = new THREE.MeshBasicMaterial({
-      color: 0x00f5ff,
+    // Pupil Eye Center (#38BDF8)
+    const skyBlueEyePupilMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+    });
+
+    // Reactive Mouth (#0EA5E9)
+    const mouthMat = new THREE.MeshBasicMaterial({
+      color: 0x0ea5e9,
       transparent: true,
       opacity: 0.95,
     });
 
-    // 5. Construct Proportional Humanoid Hierarchy
+    // =========================================================================
+    // 5. CONSTRUCT PROPORTIONAL HUMANOID HIERARCHY
+    // =========================================================================
     const robotGroup = new THREE.Group();
     scene.add(robotGroup);
     robotGroupRef.current = robotGroup;
@@ -183,112 +213,125 @@ export function RobotAvatar3D({
     torsoGroup.position.set(0, -0.22, 0);
     robotGroup.add(torsoGroup);
 
-    // Broad Humanoid Chest & Abdomen Shell
+    // Broad Humanoid Torso Shell (#F8FCFF) with White Chest highlights (#FFFFFF)
     const bodyGeo = new THREE.CylinderGeometry(0.38, 0.32, 0.68, 32);
-    const bodyMesh = new THREE.Mesh(bodyGeo, whiteChassisMat);
+    const bodyMesh = new THREE.Mesh(bodyGeo, mainBodyMat);
     bodyMesh.position.y = -0.28;
     torsoGroup.add(bodyMesh);
 
-    // Blue Clavicle Armor / Shoulder Yoke
+    // White Chest Frontal Plate (#FFFFFF)
+    const chestPlateGeo = new THREE.CylinderGeometry(0.39, 0.34, 0.36, 32, 1, false, -Math.PI * 0.35, Math.PI * 0.70);
+    const chestPlateMesh = new THREE.Mesh(chestPlateGeo, pureWhiteMat);
+    chestPlateMesh.position.set(0, -0.16, 0.01);
+    torsoGroup.add(chestPlateMesh);
+
+    // Recessed Clavicle Collar Armor (#E0F2FE)
     const collarGeo = new THREE.CylinderGeometry(0.48, 0.42, 0.14, 32);
-    const collarMesh = new THREE.Mesh(collarGeo, skyBlueHelmetMat);
+    const collarMesh = new THREE.Mesh(collarGeo, lightSkyBlueMat);
     collarMesh.position.y = 0.04;
     torsoGroup.add(collarMesh);
 
-    // Chest Glowing Cyan Reactor Core
+    // Chest Glowing Sky-Blue Reactor Core (#0EA5E9)
     const chestLightGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.04, 24);
-    const chestLight = new THREE.Mesh(chestLightGeo, chestCoreMat);
+    const chestLight = new THREE.Mesh(chestLightGeo, glowingBlueDetailMat);
     chestLight.rotation.x = Math.PI / 2;
     chestLight.position.set(0, -0.20, 0.36);
     torsoGroup.add(chestLight);
     chestLightRef.current = chestLight;
 
-    // Glowing Chest Ring Trim
+    // Glowing Chest Ring Trim (#38BDF8)
     const chestRingGeo = new THREE.TorusGeometry(0.10, 0.015, 16, 32);
-    const chestRing = new THREE.Mesh(chestRingGeo, cyanEmissiveMat);
+    const chestRing = new THREE.Mesh(chestRingGeo, glowingBlueDetailMat);
     chestRing.position.set(0, -0.20, 0.37);
     torsoGroup.add(chestRing);
 
-    // Articulated Cervical Vertebrae Neck Joint
+    // Articulated Cervical Vertebrae Neck Joint (#E0F2FE - Replaced dark slate grey)
     const neckGeo = new THREE.CylinderGeometry(0.13, 0.15, 0.22, 24);
-    const neckMesh = new THREE.Mesh(neckGeo, slateJointMat);
+    const neckMesh = new THREE.Mesh(neckGeo, lightSkyBlueMat);
     neckMesh.position.y = 0.18;
     torsoGroup.add(neckMesh);
 
-    // Hydraulic Neck Pistons
+    // Hydraulic Neck Pistons (#BAE6FD - Replaced dark slate grey)
     const pistonGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.18, 12);
-    const leftPiston = new THREE.Mesh(pistonGeo, slateJointMat);
+    const leftPiston = new THREE.Mesh(pistonGeo, jointSkyBlueMat);
     leftPiston.position.set(-0.11, 0.18, 0.04);
     torsoGroup.add(leftPiston);
 
-    const rightPiston = new THREE.Mesh(pistonGeo, slateJointMat);
+    const rightPiston = new THREE.Mesh(pistonGeo, jointSkyBlueMat);
     rightPiston.position.set(0.11, 0.18, 0.04);
     torsoGroup.add(rightPiston);
 
     // =========================================================================
-    // HEAD GROUP (Proportional Humanoid Head with Metallic Sky-Blue Helmet)
+    // HEAD GROUP (Pure White Head Shell #FFFFFF + Light White Forehead #F8FCFF)
     // =========================================================================
     const headGroup = new THREE.Group();
     headGroup.position.set(0, 0.52, 0);
     torsoGroup.add(headGroup);
     headGroupRef.current = headGroup;
 
-    // Outer Sky-Blue Cranial Helmet (Covers top, back and sides of head)
+    // Outer Cranial Head Shell (#FFFFFF - Replaced dark blue helmet)
     const helmetGeo = new THREE.SphereGeometry(0.48, 32, 28);
     helmetGeo.scale(1.05, 1.08, 1.02);
-    const helmetMesh = new THREE.Mesh(helmetGeo, skyBlueHelmetMat);
+    const helmetMesh = new THREE.Mesh(helmetGeo, pureWhiteMat);
     headGroup.add(helmetMesh);
 
-    // Sculpted Ceramic White Face Mask & Jawline (Front humanoid faceplate)
+    // Sculpted Ceramic White Face Mask & Forehead (#FFFFFF / #F8FCFF)
     const faceGeo = new THREE.SphereGeometry(0.44, 32, 24, 0, Math.PI * 2, 0, Math.PI * 0.52);
     faceGeo.scale(0.96, 1.02, 0.98);
-    const faceMesh = new THREE.Mesh(faceGeo, whiteChassisMat);
+    const faceMesh = new THREE.Mesh(faceGeo, pureWhiteMat);
     faceMesh.position.set(0, -0.04, 0.07);
     headGroup.add(faceMesh);
 
-    // Chin & Jaw Contouring
+    // Forehead Upper Shell Accent (#F8FCFF)
+    const foreheadGeo = new THREE.SphereGeometry(0.45, 32, 16, 0, Math.PI * 2, 0, Math.PI * 0.26);
+    foreheadGeo.scale(0.98, 1.02, 0.99);
+    const foreheadMesh = new THREE.Mesh(foreheadGeo, mainBodyMat);
+    foreheadMesh.position.set(0, 0.02, 0.06);
+    headGroup.add(foreheadMesh);
+
+    // Chin & Jaw Contouring (#F0F9FF - Soft reflective white)
     const jawGeo = new THREE.BoxGeometry(0.24, 0.16, 0.24);
-    const jawMesh = new THREE.Mesh(jawGeo, whiteChassisMat);
+    const jawMesh = new THREE.Mesh(jawGeo, softReflectiveMat);
     jawMesh.position.set(0, -0.38, 0.22);
     headGroup.add(jawMesh);
 
-    // Left & Right Streamlined Ear Sensor Pods
+    // Left & Right Streamlined Ear Sensor Pods (#38BDF8 with #0EA5E9 rings)
     const earGeo = new THREE.CylinderGeometry(0.11, 0.11, 0.07, 24);
-    const leftEar = new THREE.Mesh(earGeo, skyBlueHelmetMat);
+    const leftEar = new THREE.Mesh(earGeo, skyBlueAccentMat);
     leftEar.rotation.z = Math.PI / 2;
     leftEar.position.set(-0.52, -0.02, 0);
     headGroup.add(leftEar);
 
-    const leftEarRing = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.015, 16, 24), cyanEmissiveMat);
+    const leftEarRing = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.015, 16, 24), glowingBlueDetailMat);
     leftEarRing.rotation.y = Math.PI / 2;
     leftEarRing.position.set(-0.55, -0.02, 0);
     headGroup.add(leftEarRing);
 
-    const rightEar = new THREE.Mesh(earGeo, skyBlueHelmetMat);
+    const rightEar = new THREE.Mesh(earGeo, skyBlueAccentMat);
     rightEar.rotation.z = Math.PI / 2;
     rightEar.position.set(0.52, -0.02, 0);
     headGroup.add(rightEar);
 
-    const rightEarRing = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.015, 16, 24), cyanEmissiveMat);
+    const rightEarRing = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.015, 16, 24), glowingBlueDetailMat);
     rightEarRing.rotation.y = Math.PI / 2;
     rightEarRing.position.set(0.55, -0.02, 0);
     headGroup.add(rightEarRing);
 
     // =========================================================================
-    // EXPRESSIVE CONCENTRIC CIRCULAR BLUE EYES (Matching Reference GIF)
+    // EXPRESSIVE CONCENTRIC CIRCULAR BLUE EYES (#38BDF8 / #0EA5E9)
     // =========================================================================
     const eyeOuterRingGeo = new THREE.TorusGeometry(0.09, 0.022, 16, 32);
     const eyePupilGeo = new THREE.SphereGeometry(0.065, 24, 24);
 
-    // Left Eye (Concentric outer cyan ring + deep blue inner pupil)
+    // Left Eye (Outer glowing blue ring #0EA5E9 + inner sky-blue pupil #38BDF8)
     const leftEyeGroup = new THREE.Group();
     leftEyeGroup.position.set(-0.20, 0.04, 0.44);
     headGroup.add(leftEyeGroup);
 
-    const leftEyeRing = new THREE.Mesh(eyeOuterRingGeo, cyanEmissiveMat);
+    const leftEyeRing = new THREE.Mesh(eyeOuterRingGeo, glowingBlueDetailMat);
     leftEyeGroup.add(leftEyeRing);
 
-    const leftEyePupil = new THREE.Mesh(eyePupilGeo, deepBlueEyeMat);
+    const leftEyePupil = new THREE.Mesh(eyePupilGeo, skyBlueEyePupilMat);
     leftEyePupil.position.z = -0.01;
     leftEyeGroup.add(leftEyePupil);
     leftEyeRef.current = leftEyePupil;
@@ -298,28 +341,28 @@ export function RobotAvatar3D({
     rightEyeGroup.position.set(0.20, 0.04, 0.44);
     headGroup.add(rightEyeGroup);
 
-    const rightEyeRing = new THREE.Mesh(eyeOuterRingGeo, cyanEmissiveMat);
+    const rightEyeRing = new THREE.Mesh(eyeOuterRingGeo, glowingBlueDetailMat);
     rightEyeGroup.add(rightEyeRing);
 
-    const rightEyePupil = new THREE.Mesh(eyePupilGeo, deepBlueEyeMat);
+    const rightEyePupil = new THREE.Mesh(eyePupilGeo, skyBlueEyePupilMat);
     rightEyePupil.position.z = -0.01;
     rightEyeGroup.add(rightEyePupil);
     rightEyeRef.current = rightEyePupil;
 
-    // Friendly Curved Sky-Blue Eyebrows
+    // Friendly Curved Sky-Blue Eyebrows (#38BDF8)
     const browGeo = new THREE.BoxGeometry(0.16, 0.025, 0.03);
-    const leftBrow = new THREE.Mesh(browGeo, skyBlueHelmetMat);
+    const leftBrow = new THREE.Mesh(browGeo, skyBlueAccentMat);
     leftBrow.position.set(-0.20, 0.17, 0.45);
     leftBrow.rotation.z = 0.08;
     headGroup.add(leftBrow);
 
-    const rightBrow = new THREE.Mesh(browGeo, skyBlueHelmetMat);
+    const rightBrow = new THREE.Mesh(browGeo, skyBlueAccentMat);
     rightBrow.position.set(0.20, 0.17, 0.45);
     rightBrow.rotation.z = -0.08;
     headGroup.add(rightBrow);
 
     // =========================================================================
-    // ILLUMINATED SMILING MOUTH & OSCILLATING CYAN SOUNDWAVE OVERLAY
+    // ILLUMINATED SMILING MOUTH & OSCILLATING DIGITAL SOUNDWAVE (#0EA5E9)
     // =========================================================================
     const mouthGeo = new THREE.CapsuleGeometry(0.028, 0.20, 8, 16);
     mouthGeo.rotateZ(Math.PI / 2);
@@ -328,7 +371,7 @@ export function RobotAvatar3D({
     headGroup.add(mouthMesh);
     mouthMeshRef.current = mouthMesh;
 
-    // Oscillating Digital Soundwave across mouth (Matching Reference GIF)
+    // Oscillating Digital Soundwave across mouth (#0EA5E9)
     const wavePointCount = 36;
     const wavePositions = new Float32Array(wavePointCount * 3);
     for (let i = 0; i < wavePointCount; i++) {
@@ -342,7 +385,7 @@ export function RobotAvatar3D({
     mouthWaveGeoRef.current = mouthWaveGeo;
 
     const mouthWaveMat = new THREE.LineBasicMaterial({
-      color: 0x00f5ff,
+      color: 0x0ea5e9,
       transparent: true,
       opacity: 0.90,
       linewidth: 2,
@@ -353,10 +396,13 @@ export function RobotAvatar3D({
     mouthWaveMeshRef.current = mouthWaveMesh;
 
     // =========================================================================
-    // ARTICULATED HUMAN DUAL ARMS & BALL-AND-SOCKET JOINTS
+    // ARTICULATED WHITE ARMS, SKY-BLUE JOINTS & PURE WHITE HANDS
+    // ZERO BLACK / ZERO DARK-GREY MATERIALS
     // =========================================================================
     const leftUpperArmGeo = new THREE.CapsuleGeometry(0.065, 0.24, 8, 16);
     const leftForearmGeo = new THREE.CapsuleGeometry(0.055, 0.22, 8, 16);
+    const wristGeo = new THREE.CylinderGeometry(0.058, 0.058, 0.03, 16);
+    const handGeo = new THREE.BoxGeometry(0.07, 0.09, 0.04);
 
     // --- Left Arm ---
     const leftShoulderGroup = new THREE.Group();
@@ -364,14 +410,15 @@ export function RobotAvatar3D({
     torsoGroup.add(leftShoulderGroup);
     leftShoulderRef.current = leftShoulderGroup;
 
-    // Blue Shoulder Cap
-    const leftShoulderCap = new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 16), skyBlueHelmetMat);
+    // White Shoulder Cap (#FFFFFF) + Sky Blue Ring Trim (#38BDF8)
+    const leftShoulderCap = new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 16), pureWhiteMat);
     leftShoulderGroup.add(leftShoulderCap);
 
-    const leftShoulderRing = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.015, 16, 24), cyanEmissiveMat);
+    const leftShoulderRing = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.015, 16, 24), skyBlueAccentMat);
     leftShoulderGroup.add(leftShoulderRing);
 
-    const leftUpperArmMesh = new THREE.Mesh(leftUpperArmGeo, whiteChassisMat);
+    // Upper Arm (#F8FCFF)
+    const leftUpperArmMesh = new THREE.Mesh(leftUpperArmGeo, mainBodyMat);
     leftUpperArmMesh.position.set(0, -0.16, 0);
     leftShoulderGroup.add(leftUpperArmMesh);
 
@@ -380,15 +427,23 @@ export function RobotAvatar3D({
     leftShoulderGroup.add(leftElbowGroup);
     leftElbowRef.current = leftElbowGroup;
 
-    const leftElbowJoint = new THREE.Mesh(new THREE.SphereGeometry(0.065, 16, 16), slateJointMat);
+    // Elbow Joint (#BAE6FD - Replaced dark slate grey)
+    const leftElbowJoint = new THREE.Mesh(new THREE.SphereGeometry(0.065, 16, 16), jointSkyBlueMat);
     leftElbowGroup.add(leftElbowJoint);
 
-    const leftForearmMesh = new THREE.Mesh(leftForearmGeo, whiteChassisMat);
+    // Lower Arm / Forearm (#FFFFFF)
+    const leftForearmMesh = new THREE.Mesh(leftForearmGeo, pureWhiteMat);
     leftForearmMesh.position.set(0, -0.15, 0);
     leftElbowGroup.add(leftForearmMesh);
 
-    const leftHandMesh = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.09, 0.04), slateJointMat);
-    leftHandMesh.position.set(0, -0.28, 0);
+    // Wrist Joint (#E0F2FE)
+    const leftWristJoint = new THREE.Mesh(wristGeo, lightSkyBlueMat);
+    leftWristJoint.position.set(0, -0.24, 0);
+    leftElbowGroup.add(leftWristJoint);
+
+    // Hand (#FFFFFF - Replaced dark slate grey)
+    const leftHandMesh = new THREE.Mesh(handGeo, pureWhiteMat);
+    leftHandMesh.position.set(0, -0.29, 0);
     leftElbowGroup.add(leftHandMesh);
 
     // --- Right Arm ---
@@ -397,13 +452,15 @@ export function RobotAvatar3D({
     torsoGroup.add(rightShoulderGroup);
     rightShoulderRef.current = rightShoulderGroup;
 
-    const rightShoulderCap = new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 16), skyBlueHelmetMat);
+    // White Shoulder Cap (#FFFFFF) + Sky Blue Ring Trim (#38BDF8)
+    const rightShoulderCap = new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 16), pureWhiteMat);
     rightShoulderGroup.add(rightShoulderCap);
 
-    const rightShoulderRing = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.015, 16, 24), cyanEmissiveMat);
+    const rightShoulderRing = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.015, 16, 24), skyBlueAccentMat);
     rightShoulderGroup.add(rightShoulderRing);
 
-    const rightUpperArmMesh = new THREE.Mesh(leftUpperArmGeo, whiteChassisMat);
+    // Upper Arm (#F8FCFF)
+    const rightUpperArmMesh = new THREE.Mesh(leftUpperArmGeo, mainBodyMat);
     rightUpperArmMesh.position.set(0, -0.16, 0);
     rightShoulderGroup.add(rightUpperArmMesh);
 
@@ -412,15 +469,23 @@ export function RobotAvatar3D({
     rightShoulderGroup.add(rightElbowGroup);
     rightElbowRef.current = rightElbowGroup;
 
-    const rightElbowJoint = new THREE.Mesh(new THREE.SphereGeometry(0.065, 16, 16), slateJointMat);
+    // Elbow Joint (#BAE6FD - Replaced dark slate grey)
+    const rightElbowJoint = new THREE.Mesh(new THREE.SphereGeometry(0.065, 16, 16), jointSkyBlueMat);
     rightElbowGroup.add(rightElbowJoint);
 
-    const rightForearmMesh = new THREE.Mesh(leftForearmGeo, whiteChassisMat);
+    // Lower Arm / Forearm (#FFFFFF)
+    const rightForearmMesh = new THREE.Mesh(leftForearmGeo, pureWhiteMat);
     rightForearmMesh.position.set(0, -0.15, 0);
     rightElbowGroup.add(rightForearmMesh);
 
-    const rightHandMesh = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.09, 0.04), slateJointMat);
-    rightHandMesh.position.set(0, -0.28, 0);
+    // Wrist Joint (#E0F2FE)
+    const rightWristJoint = new THREE.Mesh(wristGeo, lightSkyBlueMat);
+    rightWristJoint.position.set(0, -0.24, 0);
+    rightElbowGroup.add(rightWristJoint);
+
+    // Hand (#FFFFFF - Replaced dark slate grey)
+    const rightHandMesh = new THREE.Mesh(handGeo, pureWhiteMat);
+    rightHandMesh.position.set(0, -0.29, 0);
     rightElbowGroup.add(rightHandMesh);
 
     // 6. Interactive Cursor Tracking Listener
@@ -482,7 +547,7 @@ export function RobotAvatar3D({
         targetLeftShoulderZ = 0.12;
         targetRightShoulderZ = -0.12;
       } else if (currentState === "LISTENING") {
-        targetPitch = 0.08 + Math.sin(elapsed * 1.5) * 0.02; // Attentive nod
+        targetPitch = 0.08 + Math.sin(elapsed * 1.5) * 0.02; // Attentive forward nod
         targetLeftShoulderZ = 0.18;
         targetRightShoulderZ = -0.18;
       } else if (currentState === "THINKING") {
@@ -554,7 +619,7 @@ export function RobotAvatar3D({
         } else if (currentState === "HAPPY" || currentState === "GREETING") {
           mouthMeshRef.current.scale.set(1.25, 0.40, 1.0); // Gentle smile
         } else {
-          mouthMeshRef.current.scale.set(0.80, 0.20, 1.0); // neutral resting mouth
+          mouthMeshRef.current.scale.set(0.80, 0.20, 1.0); // Neutral resting mouth
         }
       }
 
@@ -586,7 +651,7 @@ export function RobotAvatar3D({
         }
       }
 
-      // State eye glow scaling
+      // State eye glow scaling & audio responsiveness
       const eyeEnergy = currentState === "SPEAKING" ? 1.0 + currentAudio * 0.5 : 1.0;
       leftEyeGroup.scale.set(eyeEnergy, eyeEnergy, 1.0);
       rightEyeGroup.scale.set(eyeEnergy, eyeEnergy, 1.0);

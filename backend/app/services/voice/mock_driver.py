@@ -28,7 +28,7 @@ class MockVoiceDriver(VoiceDriver):
     def __init__(
         self,
         model_id: str = "amazon.nova-2-5-sonic",
-        enable_synthetic_tones: bool = False,
+        enable_synthetic_tones: bool = True,
     ):
         self._model_id = model_id
         self.enable_synthetic_tones = enable_synthetic_tones
@@ -134,9 +134,9 @@ class MockVoiceDriver(VoiceDriver):
         # 2. Emit initial conversational greeting from voice assistant
         display_name = customer_name.strip() if customer_name else None
         if display_name:
-            greeting = f"Hi {display_name}! Welcome to Brain Magic RealEstate Voice AI. I'm your real estate assistant. How can I assist you today?"
+            greeting = f"Hello {display_name}! Welcome to BrainMagic Real Estate. I'm your AI property assistant. Are you looking to buy or rent a property?"
         else:
-            greeting = "Hello! Welcome to Brain Magic RealEstate Voice AI. I'm your real estate assistant. How can I assist you today?"
+            greeting = "Hello! Welcome to BrainMagic Real Estate. I'm your AI property assistant. Are you looking to buy or rent a property?"
         await queue.put(
             VoiceServerEvent(
                 event_type=VoiceEventType.TRANSCRIPT_DELTA,
@@ -149,13 +149,14 @@ class MockVoiceDriver(VoiceDriver):
             )
         )
         if self.enable_synthetic_tones:
-            # Emit greeting synthetic audible audio only if explicitly enabled (e.g. specific tests)
+            # Emit greeting synthetic audible audio for playback and robot lip-sync
+            greeting_audio = self._generate_synthetic_pcm_audio(duration_ms=1800, freq=440.0)
             await queue.put(
                 VoiceServerEvent(
                     event_type=VoiceEventType.AUDIO_OUTPUT,
                     session_id=session_id,
                     audio_payload=AudioOutputPayload(
-                        audio_bytes=self._generate_synthetic_pcm_audio(duration_ms=600, freq=523.25),
+                        audio_bytes=greeting_audio,
                         sample_rate=24000,
                     ),
                 )

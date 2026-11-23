@@ -8,6 +8,11 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 DOTENV_PATH = BACKEND_DIR / ".env"
 
 
+# Prevent botocore from attempting slow EC2 metadata service queries in non-EC2/offline environments
+if "AWS_EC2_METADATA_DISABLED" not in os.environ:
+    os.environ["AWS_EC2_METADATA_DISABLED"] = "true"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=(str(DOTENV_PATH), ".env"),
@@ -49,7 +54,7 @@ class Settings(BaseSettings):
     USE_MOCK_VOICE: bool = True  # Mandatory default for zero-cost credential-free dev
     LIVE_TEST_APPROVED: bool = False  # Mandatory safety latch: must be True to allow live Bedrock inference
     LOCAL_VOICE_TEST_MODE: bool = False  # Temporary zero-auth local voice test mode (loopback only)
-    ENABLE_AUTOMATIC_GREETING: bool = False  # Disabled by default: restores known-working microphone-first path
+    ENABLE_AUTOMATIC_GREETING: bool = os.getenv("ENABLE_AUTOMATIC_GREETING", "true").lower() in ("true", "1", "yes")  # Automatic AI opening greeting enabled for demo mode
     MAX_CONCURRENT_LIVE_SESSIONS: int = 1  # Maximum concurrent live test sessions
     LIVE_TEST_MAX_SESSION_SECONDS: int = 600  # Duration limit for preflight/live tests (600s / 10 min)
     VOICE_SESSION_LOCAL_DEV_DURATION_SECONDS: int = 600  # 600s (10 min) for local voice-test sandbox
@@ -79,6 +84,10 @@ class Settings(BaseSettings):
     # Storage Paths
     UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "storage/uploads")
     AUDIO_STORAGE_DIR: str = os.getenv("AUDIO_STORAGE_DIR", "storage/audio")
+
+    # Demo Mode & Latest Excel Dataset
+    DEMO_DATASET_MODE: bool = os.getenv("DEMO_DATASET_MODE", "true").lower() in ("true", "1", "yes")
+    DEMO_DATASET_PATH: str = os.getenv("DEMO_DATASET_PATH", "BrainMagic_RealEstate.xlsx")
 
 
 settings = Settings()

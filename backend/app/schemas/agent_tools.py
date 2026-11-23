@@ -35,24 +35,24 @@ class SearchPropertiesToolInput(BaseModel):
 
 
 class GetPropertyDetailsToolInput(BaseModel):
-    unit_id: uuid.UUID = Field(..., description="Unique UUID of the property unit")
+    unit_id: str = Field(..., description="Unique UUID or identifier of the property unit")
     include_pricing_history: bool = Field(default=False, description="Whether to include historical pricing records")
 
 
 class GetPropertyPriceToolInput(BaseModel):
-    unit_id: uuid.UUID = Field(..., description="Unique UUID of the property unit")
+    unit_id: str = Field(..., description="Unique UUID or identifier of the property unit")
 
 
 class CheckPropertyAvailabilityToolInput(BaseModel):
-    unit_id: uuid.UUID = Field(..., description="Unique UUID of the property unit")
+    unit_id: str = Field(..., description="Unique UUID or identifier of the property unit")
 
 
 class ComparePropertiesToolInput(BaseModel):
-    unit_ids: List[uuid.UUID] = Field(
+    unit_ids: List[str] = Field(
         ...,
         min_length=2,
         max_length=5,
-        description="List of 2 to 5 property unit UUIDs to compare side-by-side"
+        description="List of 2 to 5 property unit UUIDs or identifiers to compare side-by-side"
     )
 
 

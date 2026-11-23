@@ -149,7 +149,7 @@ class VoiceSessionOrchestrator:
         except Exception:
             pass
 
-        enable_auto_greeting = getattr(settings, "ENABLE_AUTOMATIC_GREETING", False)
+        enable_auto_greeting = getattr(settings, "ENABLE_AUTOMATIC_GREETING", True)
         if self.customer_name:
             if self.has_greeted:
                 preamble += (
@@ -161,8 +161,8 @@ class VoiceSessionOrchestrator:
                 preamble += (
                     f"\n\nCUSTOMER IDENTITY & AUTOMATIC OPENING GREETING:\n"
                     f"- You are conversing directly with {self.customer_name}.\n"
-                    f"- Start the conversation warmly by greeting {self.customer_name}: "
-                    f"'Hello {self.customer_name}! Welcome to Brain Magic RealEstate Voice AI. How can I assist you today?'\n"
+                    f"- Start the conversation warmly by speaking the opening greeting first: "
+                    f"'Hello {self.customer_name}! Welcome to BrainMagic Real Estate. I'm your AI property assistant. Are you looking to buy or rent a property?'\n"
                     f"- Follow-up: Ask only ONE short follow-up question at a time to determine property type, BHK configuration, preferred city/neighborhood, and budget range.\n"
                     f"- Grounding: Recommend properties exclusively by executing search_properties or query_active_dataset on the 166 verified records. Never invent project names, prices, or availability."
                 )
@@ -171,15 +171,15 @@ class VoiceSessionOrchestrator:
                     f"\n\nCUSTOMER IDENTITY (MICROPHONE-FIRST MODE):\n"
                     f"- You are conversing directly with {self.customer_name}.\n"
                     f"- The customer will speak first into the microphone. Listen attentively and greet them warmly in your first response: "
-                    f"'Hello {self.customer_name}! Welcome to Brain Magic RealEstate Voice AI. How can I assist you today?'\n"
+                    f"'Hello {self.customer_name}! Welcome to BrainMagic Real Estate. I'm your AI property assistant. Are you looking to buy or rent a property?'\n"
                     f"- Follow-up: Ask only ONE short follow-up question at a time to determine property type, BHK configuration, preferred city/neighborhood, and budget range.\n"
                     f"- Grounding: Recommend properties exclusively by executing search_properties or query_active_dataset on the 166 verified records. Never invent project names, prices, or availability."
                 )
         elif enable_auto_greeting:
             preamble += (
                 "\n\nAUTOMATIC OPENING GREETING:\n"
-                "- Start the conversation warmly by greeting the customer: "
-                "'Hello! Welcome to Brain Magic RealEstate Voice AI. How can I assist you today?'\n"
+                "- Start the conversation warmly by speaking the opening greeting first: "
+                "'Hello! Welcome to BrainMagic Real Estate. I'm your AI property assistant. Are you looking to buy or rent a property?'\n"
                 "- Follow-up: Ask only ONE short follow-up question at a time to determine property type, BHK configuration, preferred city/neighborhood, and budget range.\n"
                 "- Grounding: Recommend properties exclusively by executing search_properties or query_active_dataset on the 166 verified records. Never invent project names, prices, or availability."
             )
@@ -187,9 +187,22 @@ class VoiceSessionOrchestrator:
             preamble += (
                 "\n\nCONVERSATION GUIDELINES (MICROPHONE-FIRST MODE):\n"
                 "- The customer will speak first into the microphone. Listen attentively and greet them warmly in your first response: "
-                "'Hello! Welcome to Brain Magic RealEstate Voice AI. How can I assist you today?'\n"
+                "'Hello! Welcome to BrainMagic Real Estate. I'm your AI property assistant. Are you looking to buy or rent a property?'\n"
                 "- Follow-up: Ask only ONE short follow-up question at a time to determine property type, BHK configuration, preferred city/neighborhood, and budget range.\n"
                 "- Grounding: Recommend properties exclusively by executing search_properties or query_active_dataset on the 166 verified records. Never invent project names, prices, or availability."
+            )
+
+        if getattr(settings, "DEMO_DATASET_MODE", False):
+            preamble += (
+                "\n\nDEMO MODE & ESTIMATED PRICING GUIDANCE (BrainMagic RealEstate v10):\n"
+                "- You are operating in DEMO MODE with our latest verified portfolio and demo apartments.\n"
+                "- When discussing apartment or configuration prices, always quote the estimated demo range using the format: "
+                "'For this demo, the estimated price is around [price range]. The actual selling price may vary.'\n"
+                "- Never invent a price outside the dataset, and never present demo prices as confirmed seller quotations.\n"
+                "- Follow-up Context: When the customer asks follow-up questions about 'this property', 'this 2BHK', 'it', or 'the project', "
+                "refer directly to the property currently under discussion without asking them to repeat the project name.\n"
+                "- Photos: If photos are requested and available, mention them. If photos are unavailable, inform the customer that "
+                "official property photos and brochures are available on the developer's official project portal."
             )
 
         if returning_context:
@@ -472,6 +485,13 @@ class VoiceSessionOrchestrator:
                             tool_req.arguments["min_budget"] = float(active_req.budget_min)
                         if not tool_req.arguments.get("preferred_amenities") and active_req.desired_amenities:
                             tool_req.arguments["preferred_amenities"] = active_req.desired_amenities
+                    elif tool_req.tool_name in ["get_property_details", "get_property_price", "check_property_availability"]:
+                        # Contextual follow-up resolution: if unit_id is omitted or generic ("this", "it"), use selected_property
+                        current_uid = str(tool_req.arguments.get("unit_id") or "").strip().lower()
+                        if not current_uid or current_uid in ["this", "it", "the property", "that one", "none"]:
+                            selected = self.session_state.get_selected_property()
+                            if selected:
+                                tool_req.arguments["unit_id"] = selected.get("project_id") or selected.get("apartment_id") or selected.get("project_name")
 
                     # Notify client of tool execution
                     await send_text(
@@ -503,16 +523,22 @@ class VoiceSessionOrchestrator:
 
                         elif tool_req.tool_name == "search_properties":
                             self.session_state.last_search_criteria = tool_req.arguments
-                            props = tool_resp.data.get("properties") or []
+                            props = tool_resp.data.get("properties") or tool_resp.data.get("exact_matches") or []
+                            if props:
+                                self.session_state.set_selected_property(props[0])
                             for p in props:
-                                uid_str = p.get("unit_id")
+                                uid_str = p.get("unit_id") or p.get("project_id")
                                 if uid_str:
                                     try:
-                                        uid = uuid.UUID(uid_str)
+                                        uid = uuid.UUID(str(uid_str))
                                         if uid not in self.session_state.viewed_properties:
                                             self.session_state.viewed_properties.append(uid)
                                     except Exception:
                                         pass
+
+                        elif tool_req.tool_name in ["get_property_details", "get_property_price"]:
+                            if isinstance(tool_resp.data, dict):
+                                self.session_state.set_selected_property(tool_resp.data)
 
                         elif tool_req.tool_name == "compare_properties":
                             items = tool_resp.data.get("comparison_items") or []
@@ -648,9 +674,11 @@ class VoiceSessionOrchestrator:
                 self.driver.release_session(self.session_id)
 
         # 1. Check existing conversation for ownership and historical transcript preservation
-        conv = self.db.execute(
-            select(Conversation).where(Conversation.session_id == self.session_id)
-        ).scalar_one_or_none()
+        conv = None
+        if self.db is not None:
+            conv = self.db.execute(
+                select(Conversation).where(Conversation.session_id == self.session_id)
+            ).scalar_one_or_none()
 
         if conv and self.user_role == "customer" and conv.customer_id is not None and conv.customer_id != self.customer_id:
             logger.error(
@@ -673,16 +701,17 @@ class VoiceSessionOrchestrator:
         # 2. Encrypt transcript with AES-256-GCM
         encrypted_transcript_payload = encrypt_transcript(full_transcript) if full_transcript else None
 
-        # 3. Persist or update Conversation database record (unless DRY_RUN_TEST_MODE is enabled or local_tester)
-        if getattr(settings, "DRY_RUN_TEST_MODE", False) or self.user_role == "local_tester":
+        # 3. Persist or update Conversation database record (unless DRY_RUN_TEST_MODE is enabled, local_tester, or self.db is None)
+        if self.db is None or getattr(settings, "DRY_RUN_TEST_MODE", False) or self.user_role == "local_tester":
             logger.info(
                 f"[DRY_RUN/LOCAL_TEST_MODE] Active for session {self.session_id}: "
                 "Rolling back all transactional changes and skipping persistent writes."
             )
-            try:
-                self.db.rollback()
-            except Exception as rb_err:
-                logger.warning(f"Rollback error in dry-run mode: {rb_err}")
+            if self.db is not None:
+                try:
+                    self.db.rollback()
+                except Exception as rb_err:
+                    logger.warning(f"Rollback error in dry-run mode: {rb_err}")
             self.session_state.reset()
             return
 
@@ -727,7 +756,7 @@ class VoiceSessionOrchestrator:
         meta_info: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Records an immutable audit event for voice actions."""
-        if getattr(settings, "DRY_RUN_TEST_MODE", False) or self.user_role == "local_tester":
+        if self.db is None or getattr(settings, "DRY_RUN_TEST_MODE", False) or self.user_role == "local_tester":
             logger.debug(f"[DRY_RUN/LOCAL_TEST_MODE] Skipping audit log database write for {action}")
             return
 

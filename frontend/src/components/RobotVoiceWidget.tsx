@@ -299,13 +299,13 @@ export function RobotVoiceWidget({ initialOpen = false }: RobotVoiceWidgetProps)
                 </div>
               )}
               {robotState === "LISTENING" && (
-                <div className="flex items-center space-x-1.5 text-emerald-400 text-xs font-semibold">
+                <div className="flex items-center space-x-1.5 text-sky-400 text-xs font-semibold">
                   <Radio className="w-4 h-4 animate-pulse" />
                   <span>Listening to you...</span>
                 </div>
               )}
               {robotState === "THINKING" && (
-                <div className="flex items-center space-x-1.5 text-indigo-400 text-xs font-semibold animate-pulse">
+                <div className="flex items-center space-x-1.5 text-sky-400 text-xs font-semibold animate-pulse">
                   <Sparkles className="w-4 h-4" />
                   <span>Searching Genuine Inventory...</span>
                 </div>

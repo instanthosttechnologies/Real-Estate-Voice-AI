@@ -277,8 +277,52 @@ class AmazonNovaSonicDriver(VoiceDriver):
                 if session_id not in self._active_sessions:
                     return
 
-            # 4. Open USER AUDIO content container for bidirectional microphone streaming (strict 16kHz for Nova Sonic input)
-            # Restores proven, stable microphone-first conversation flow without invalid cross-modal triggers
+            # 4. If automatic greeting is enabled, initiate conversational opening turn via USER text block
+            enable_auto_greeting = getattr(settings, "ENABLE_AUTOMATIC_GREETING", True)
+            if enable_auto_greeting:
+                init_user_content_name = f"user_init_{uuid.uuid4().hex[:8]}"
+                await _send_init_event(
+                    BedrockNovaSonicSerializer.serialize_text_content_start(
+                        prompt_name=prompt_name,
+                        content_name=init_user_content_name,
+                        role="USER",
+                        interactive=True,
+                    ),
+                    "contentStart(INIT_USER)",
+                    0.02,
+                )
+                if session_id not in self._active_sessions:
+                    return
+
+                init_text = (
+                    f"Customer {customer_name.strip()} has joined the conversation. Greet the customer warmly now."
+                    if customer_name
+                    else "The customer has joined the conversation. Greet the customer warmly now."
+                )
+                await _send_init_event(
+                    BedrockNovaSonicSerializer.serialize_text_input(
+                        prompt_name=prompt_name,
+                        content_name=init_user_content_name,
+                        text=init_text,
+                    ),
+                    "textInput(INIT_USER)",
+                    0.02,
+                )
+                if session_id not in self._active_sessions:
+                    return
+
+                await _send_init_event(
+                    BedrockNovaSonicSerializer.serialize_content_end(
+                        prompt_name=prompt_name,
+                        content_name=init_user_content_name,
+                    ),
+                    "contentEnd(INIT_USER)",
+                    0.02,
+                )
+                if session_id not in self._active_sessions:
+                    return
+
+            # 5. Open USER AUDIO content container for bidirectional microphone streaming (strict 16kHz for Nova Sonic input)
             await _send_init_event(
                 BedrockNovaSonicSerializer.serialize_audio_content_start(
                     prompt_name=prompt_name,

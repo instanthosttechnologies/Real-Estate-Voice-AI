@@ -49,10 +49,88 @@ from app.services.real_estate.site_visits import (
 )
 from app.services.dataset.manager import get_active_dataset
 from app.services.dataset.retrieval import query_dynamic_dataset
+from app.core.config import settings
+from app.services.real_estate.demo_dataset import DemoDatasetService
+import re
 
 
 def tool_search_properties(db: Session, args: SearchPropertiesToolInput) -> AgentToolResponse:
-    # 1. Check if an active dynamic dataset is configured
+    # 1. Check if an active dynamic dataset is configured in the database
+    active_ds = get_active_dataset(db)
+    if active_ds:
+        query_terms = " ".join([
+            v for v in [args.project_name, args.company_name, args.city, args.location_query, args.configuration_type, args.property_type]
+            if v
+        ])
+        if not query_terms and args.required_amenities:
+            query_terms = " ".join(args.required_amenities)
+        if query_terms:
+            ds_res = query_dynamic_dataset(db, query_terms, limit=args.limit)
+            if ds_res.get("found") and ds_res.get("records"):
+                return AgentToolResponse(
+                    tool_name="search_properties",
+                    success=True,
+                    data={
+                        "dataset_grounded": True,
+                        "dataset_name": ds_res["dataset_name"],
+                        "dataset_version": ds_res["dataset_version"],
+                        "total_exact_matches": ds_res["returned_matches"],
+                        "exact_matches": ds_res["records"],
+                        "voice_grounding": ds_res["voice_grounding"],
+                    },
+                    anti_hallucination_guidance=(
+                        "State only the properties returned in exact_matches and use the voice_grounding summary. "
+                        "Never fabricate unlisted projects, prices, or configurations."
+                    ),
+                )
+
+    # 2. Check if DEMO_DATASET_MODE is active
+    if getattr(settings, "DEMO_DATASET_MODE", False):
+        demo_svc = DemoDatasetService.get_instance()
+        bhk_val = None
+        if args.configuration_type:
+            m = re.search(r"(\d+)", str(args.configuration_type))
+            if m:
+                bhk_val = int(m.group(1))
+
+        demo_matches = demo_svc.search_properties(
+            city=args.city,
+            locality=args.location_query,
+            project_name=args.project_name,
+            developer=args.company_name,
+            property_type=args.property_type,
+            bhk=bhk_val,
+            min_budget=float(args.min_budget) if args.min_budget else None,
+            max_budget=float(args.max_budget) if args.max_budget else None,
+            amenities=args.required_amenities,
+            limit=args.limit,
+        )
+        if demo_matches:
+            voice_lines = []
+            for p in demo_matches[:3]:
+                voice_lines.append(
+                    f"{p['project_name']} by {p['developer_name']} in {p['locality']}, {p['city']}. "
+                    f"Amenities include {str(p['amenities'])[:80]}. {p['spoken_price_script']}"
+                )
+            return AgentToolResponse(
+                tool_name="search_properties",
+                success=True,
+                data={
+                    "is_demo_mode": True,
+                    "dataset_grounded": True,
+                    "dataset_name": "BrainMagic_RealEstate_v10_Demo",
+                    "total_matches": len(demo_matches),
+                    "total_exact_matches": len(demo_matches),
+                    "exact_matches": demo_matches,
+                    "properties": demo_matches,
+                    "voice_grounding": " ".join(voice_lines),
+                },
+                anti_hallucination_guidance=(
+                    "For this demo, state estimated prices using the format: "
+                    "'For this demo, the estimated price is around [price range]. The actual selling price may vary.' "
+                    "Never present demo prices as confirmed seller quotations."
+                ),
+            )
     active_ds = get_active_dataset(db)
     if active_ds:
         query_terms = " ".join([
@@ -126,9 +204,8 @@ def tool_search_properties(db: Session, args: SearchPropertiesToolInput) -> Agen
 
 def tool_compare_properties(db: Session, args: ComparePropertiesToolInput) -> AgentToolResponse:
     """
-    Compares 2 to 5 property units side-by-side using authentic database records.
-    Evaluates price, price per sqft, configuration, size, floor, facing, availability,
-    and calculates common vs unique amenities.
+    Compares 2 to 5 property units side-by-side. Supports both Excel Demo mode
+    and authentic database records.
     """
     unit_ids = args.unit_ids
     if len(unit_ids) < 2:
@@ -138,10 +215,30 @@ def tool_compare_properties(db: Session, args: ComparePropertiesToolInput) -> Ag
             error_message="At least 2 property unit IDs are required for a side-by-side comparison.",
         )
 
+    # Demo Mode Check
+    if getattr(settings, "DEMO_DATASET_MODE", False):
+        demo_svc = DemoDatasetService.get_instance()
+        comp_res = demo_svc.compare_properties([str(u) for u in unit_ids])
+        if comp_res.get("success"):
+            return AgentToolResponse(
+                tool_name="compare_properties",
+                success=True,
+                data=comp_res,
+                anti_hallucination_guidance=(
+                    "Compare only the exact values provided in the comparison data. "
+                    "Remind the customer that demo prices are approximate."
+                ),
+            )
+
     comparison_items: List[Dict[str, Any]] = []
     missing_ids: List[str] = []
 
-    for uid in unit_ids:
+    for uid_str in unit_ids:
+        try:
+            uid = uuid.UUID(str(uid_str))
+        except (ValueError, TypeError):
+            missing_ids.append(str(uid_str))
+            continue
         detail = get_property_unit_details(db, uid)
         if not detail:
             missing_ids.append(str(uid))
@@ -241,9 +338,33 @@ def tool_compare_properties(db: Session, args: ComparePropertiesToolInput) -> Ag
 
 
 def tool_get_property_details(db: Session, args: GetPropertyDetailsToolInput) -> AgentToolResponse:
+    # 0. Check Demo Mode
+    if getattr(settings, "DEMO_DATASET_MODE", False):
+        demo_svc = DemoDatasetService.get_instance()
+        demo_det = demo_svc.get_property_details(str(args.unit_id))
+        if demo_det:
+            return AgentToolResponse(
+                tool_name="get_property_details",
+                success=True,
+                data=demo_det,
+                anti_hallucination_guidance=(
+                    "Describe the demo property specifications, amenities, and estimated price range faithfully. "
+                    "If quoting price, state: 'For this demo, the estimated price is around [range]. The actual selling price may vary.'"
+                ),
+            )
+
+    try:
+        parsed_uuid = uuid.UUID(str(args.unit_id))
+    except (ValueError, TypeError):
+        return AgentToolResponse(
+            tool_name="get_property_details",
+            success=False,
+            error_message=f"Property {args.unit_id} not found in inventory records.",
+        )
+
     details = get_property_unit_details(
         db=db,
-        unit_id=args.unit_id,
+        unit_id=parsed_uuid,
         include_pricing_history=args.include_pricing_history
     )
     if not details:
@@ -261,8 +382,33 @@ def tool_get_property_details(db: Session, args: GetPropertyDetailsToolInput) ->
 
 
 def tool_get_property_price(db: Session, args: GetPropertyPriceToolInput) -> AgentToolResponse:
+    # 0. Check Demo Mode
+    if getattr(settings, "DEMO_DATASET_MODE", False):
+        demo_svc = DemoDatasetService.get_instance()
+        price_info = demo_svc.get_property_price(str(args.unit_id))
+        if price_info.get("success"):
+            return AgentToolResponse(
+                tool_name="get_property_price",
+                success=True,
+                data=price_info,
+                anti_hallucination_guidance=(
+                    "State the price strictly using the provided spoken_price_script: "
+                    f"\"{price_info['spoken_price_script']}\" "
+                    "Never quote demo prices as confirmed seller prices."
+                ),
+            )
+
+    try:
+        parsed_uuid = uuid.UUID(str(args.unit_id))
+    except (ValueError, TypeError):
+        return AgentToolResponse(
+            tool_name="get_property_price",
+            success=False,
+            error_message="No verified active price found for this unit. State that pricing is currently under review by management. Never estimate or invent a price.",
+        )
+
     active_price = db.execute(
-        select(Pricing).where(Pricing.unit_id == args.unit_id, Pricing.is_active == True)
+        select(Pricing).where(Pricing.unit_id == parsed_uuid, Pricing.is_active == True)
     ).scalar_one_or_none()
 
     if not active_price:
@@ -291,7 +437,39 @@ def tool_get_property_price(db: Session, args: GetPropertyPriceToolInput) -> Age
 
 
 def tool_check_property_availability(db: Session, args: CheckPropertyAvailabilityToolInput) -> AgentToolResponse:
-    report = check_unit_availability(db=db, unit_id=args.unit_id)
+    # 0. Check Demo Mode
+    if getattr(settings, "DEMO_DATASET_MODE", False):
+        demo_svc = DemoDatasetService.get_instance()
+        det = demo_svc.get_property_details(str(args.unit_id))
+        if det:
+            return AgentToolResponse(
+                tool_name="check_property_availability",
+                success=True,
+                data={
+                    "unit_id": str(args.unit_id),
+                    "property_name": det["project_name"],
+                    "status": "available",
+                    "is_demo_mode": True,
+                    "message": f"Units at {det['project_name']} are currently open for booking and site visits.",
+                },
+                anti_hallucination_guidance="Inform the customer of unit availability in demo mode."
+            )
+
+    try:
+        parsed_uuid = uuid.UUID(str(args.unit_id))
+    except (ValueError, TypeError):
+        return AgentToolResponse(
+            tool_name="check_property_availability",
+            success=False,
+            error_message=f"Property {args.unit_id} not found in inventory records.",
+        )
+    report = check_unit_availability(db=db, unit_id=parsed_uuid)
+    return AgentToolResponse(
+        tool_name="check_property_availability",
+        success=True,
+        data=report.model_dump(),
+        anti_hallucination_guidance="Never assume availability. If status is not 'available', inform the customer honestly that the unit is not open for booking."
+    )
     return AgentToolResponse(
         tool_name="check_property_availability",
         success=True,
@@ -533,8 +711,83 @@ def tool_transfer_to_human(db: Session, args: TransferToHumanToolInput) -> Agent
 def tool_query_active_dataset(db: Session, args: QueryActiveDatasetToolInput) -> AgentToolResponse:
     """
     Direct dynamic retrieval tool across the active real estate dataset.
-    Answers developer, project, configuration, location, and amenities questions.
+    Answers developer, project, configuration, location, amenities, and FAQ questions.
     """
+    # 1. Check if an active dynamic dataset is configured in the database
+    active_ds = get_active_dataset(db)
+    if active_ds:
+        query_str = args.query
+        if args.developer and args.developer.lower() not in query_str.lower():
+            query_str = f"{args.developer} {query_str}"
+        if args.city and args.city.lower() not in query_str.lower():
+            query_str = f"{query_str} in {args.city}"
+        if args.configuration and args.configuration.lower() not in query_str.lower():
+            query_str = f"{query_str} {args.configuration}"
+
+        res = query_dynamic_dataset(db, query_str.strip(), limit=args.limit)
+        return AgentToolResponse(
+            tool_name="query_active_dataset",
+            success=True,
+            data=res,
+            anti_hallucination_guidance=(
+                "Answer the customer's question strictly using the returned verified dataset records. "
+                "If a detail (such as price, floor plan, or possession status) is null or unstated in the record, "
+                "explicitly inform the customer that it is unstated in the verified portfolio and offer to connect them with a specialist."
+            ),
+        )
+
+    # 2. Check Demo Mode
+    if getattr(settings, "DEMO_DATASET_MODE", False):
+        demo_svc = DemoDatasetService.get_instance()
+        # A. Check for matching FAQs first
+        faq_matches = demo_svc.search_faqs(args.query, limit=args.limit)
+        if faq_matches:
+            top_faq = faq_matches[0]
+            return AgentToolResponse(
+                tool_name="query_active_dataset",
+                success=True,
+                data={
+                    "is_demo_mode": True,
+                    "faq_found": True,
+                    "question": top_faq.get("question"),
+                    "answer": top_faq.get("answer"),
+                    "category": top_faq.get("category"),
+                    "faq_matches": faq_matches,
+                },
+                anti_hallucination_guidance="Answer the customer's question directly and concisely using the verified FAQ answer.",
+            )
+
+        # B. Check demo property search
+        demo_matches = demo_svc.search_properties(
+            city=args.city,
+            developer=args.developer,
+            property_type=args.configuration,
+            limit=args.limit
+        )
+        if demo_matches:
+            voice_lines = []
+            for p in demo_matches[:3]:
+                voice_lines.append(
+                    f"{p['project_name']} by {p['developer_name']} in {p['locality']}, {p['city']}. {p['spoken_price_script']}"
+                )
+            return AgentToolResponse(
+                tool_name="query_active_dataset",
+                success=True,
+                data={
+                    "is_demo_mode": True,
+                    "dataset_grounded": True,
+                    "dataset_name": "BrainMagic_RealEstate_v10_Demo",
+                    "total_matches": len(demo_matches),
+                    "exact_matches": demo_matches,
+                    "voice_grounding": " ".join(voice_lines),
+                },
+                anti_hallucination_guidance=(
+                    "For this demo, state estimated prices using the format: "
+                    "'For this demo, the estimated price is around [price range]. The actual selling price may vary.' "
+                    "Never present demo prices as confirmed seller quotations."
+                ),
+            )
+
     query_str = args.query
     if args.developer and args.developer.lower() not in query_str.lower():
         query_str = f"{args.developer} {query_str}"

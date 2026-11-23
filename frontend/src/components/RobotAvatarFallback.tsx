@@ -80,13 +80,13 @@ export function RobotAvatarFallback({
       >
         <defs>
           <linearGradient id="bodyGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#f8fafc" />
-            <stop offset="60%" stopColor="#e2e8f0" />
-            <stop offset="100%" stopColor="#cbd5e1" />
+            <stop offset="0%" stopColor="#ffffff" />
+            <stop offset="50%" stopColor="#f8fcff" />
+            <stop offset="100%" stopColor="#e0f2fe" />
           </linearGradient>
           <linearGradient id="visorGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor="#0f172a" />
-            <stop offset="100%" stopColor="#1e293b" />
+            <stop offset="0%" stopColor="#e0f2fe" />
+            <stop offset="100%" stopColor="#bae6fd" />
           </linearGradient>
           <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
             <feGaussianBlur stdDeviation="3" result="blur" />
@@ -95,7 +95,7 @@ export function RobotAvatarFallback({
         </defs>
 
         {/* Floating Thruster Base / Shadow */}
-        <ellipse cx="120" cy="225" rx="38" ry="6" fill="rgba(15, 23, 42, 0.25)" />
+        <ellipse cx="120" cy="225" rx="38" ry="6" fill="rgba(56, 189, 248, 0.20)" />
         <ellipse
           cx="120"
           cy="215"
@@ -108,23 +108,23 @@ export function RobotAvatarFallback({
 
         {/* Left Arm & Shoulder Joint */}
         <g style={{ transformOrigin: "85px 150px", transform: `rotate(${leftArmRotate}deg)` }}>
-          <circle cx="85" cy="150" r="7" fill="#64748b" />
+          <circle cx="85" cy="150" r="7" fill="#bae6fd" />
           <path d="M 85 150 L 60 178 L 52 195" fill="none" stroke="url(#bodyGrad)" strokeWidth="10" strokeLinecap="round" />
-          <circle cx="52" cy={195 + leftHandY} r="6" fill="#475569" />
+          <circle cx="52" cy={195 + leftHandY} r="6" fill="#ffffff" stroke="#bae6fd" strokeWidth="2" />
         </g>
 
         {/* Right Arm & Shoulder Joint */}
         <g style={{ transformOrigin: "155px 150px", transform: `rotate(${rightArmRotate}deg)` }}>
-          <circle cx="155" cy="150" r="7" fill="#64748b" />
+          <circle cx="155" cy="150" r="7" fill="#bae6fd" />
           <path d="M 155 150 L 180 178 L 188 195" fill="none" stroke="url(#bodyGrad)" strokeWidth="10" strokeLinecap="round" />
-          <circle cx="188" cy={195 + rightHandY} r="6" fill="#475569" />
+          <circle cx="188" cy={195 + rightHandY} r="6" fill="#ffffff" stroke="#bae6fd" strokeWidth="2" />
         </g>
 
         {/* Robot Body / Torso Chassis */}
         <path
           d="M 85 140 Q 120 130 155 140 L 145 200 Q 120 208 95 200 Z"
           fill="url(#bodyGrad)"
-          stroke="#94a3b8"
+          stroke="#bae6fd"
           strokeWidth="2"
         />
 
@@ -138,17 +138,17 @@ export function RobotAvatarFallback({
           className={state === "THINKING" || state === "LISTENING" ? "animate-pulse" : ""}
         />
 
-        {/* Neck Pivot */}
-        <rect x="112" y="125" width="16" height="15" rx="3" fill="#64748b" />
+        {/* Neck Pivot (#E0F2FE with #BAE6FD stroke) */}
+        <rect x="112" y="125" width="16" height="15" rx="3" fill="#e0f2fe" stroke="#bae6fd" strokeWidth="1.5" />
 
-        {/* Proportional Humanoid Sky-Blue Cranial Helmet */}
+        {/* Proportional Humanoid Pure White Cranial Helmet (#FFFFFF with #38BDF8 accent) */}
         <ellipse
           cx="120"
           cy="75"
           rx="58"
           ry="50"
-          fill="#0284c7"
-          stroke="#0369a1"
+          fill="#ffffff"
+          stroke="#38bdf8"
           strokeWidth="2.5"
         />
 
@@ -156,20 +156,20 @@ export function RobotAvatarFallback({
         <path
           d="M 75 70 C 75 48, 165 48, 165 70 C 165 102, 148 122, 120 125 C 92 122, 75 102, 75 70 Z"
           fill="url(#bodyGrad)"
-          stroke="#cbd5e1"
+          stroke="#bae6fd"
           strokeWidth="2"
         />
 
-        {/* Left & Right Streamlined Ear Sensor Rings */}
-        <rect x="56" y="66" width="7" height="22" rx="3.5" fill="#0284c7" />
-        <circle cx="59.5" cy="77" r="4" fill="#00f5ff" filter="url(#glow)" />
+        {/* Left & Right Streamlined Ear Sensor Rings (#38BDF8 with #0EA5E9 glow) */}
+        <rect x="56" y="66" width="7" height="22" rx="3.5" fill="#38bdf8" />
+        <circle cx="59.5" cy="77" r="4" fill="#0ea5e9" filter="url(#glow)" />
 
-        <rect x="177" y="66" width="7" height="22" rx="3.5" fill="#0284c7" />
-        <circle cx="180.5" cy="77" r="4" fill="#00f5ff" filter="url(#glow)" />
+        <rect x="177" y="66" width="7" height="22" rx="3.5" fill="#38bdf8" />
+        <circle cx="180.5" cy="77" r="4" fill="#0ea5e9" filter="url(#glow)" />
 
-        {/* Sky-Blue Eyebrows */}
-        <line x1="86" y1="62" x2="104" y2="60" stroke="#0284c7" strokeWidth="2.5" strokeLinecap="round" />
-        <line x1="136" y1="60" x2="154" y2="62" stroke="#0284c7" strokeWidth="2.5" strokeLinecap="round" />
+        {/* Sky-Blue Eyebrows (#38BDF8) */}
+        <line x1="86" y1="62" x2="104" y2="60" stroke="#38bdf8" strokeWidth="2.5" strokeLinecap="round" />
+        <line x1="136" y1="60" x2="154" y2="62" stroke="#38bdf8" strokeWidth="2.5" strokeLinecap="round" />
 
         {/* Left Concentric Eye */}
         {eyeShape === "blink" || eyeShape === "closed" ? (
@@ -178,7 +178,7 @@ export function RobotAvatarFallback({
             y1="75"
             x2="104"
             y2="75"
-            stroke="#00f5ff"
+            stroke="#0ea5e9"
             strokeWidth="3.5"
             strokeLinecap="round"
             filter="url(#glow)"
@@ -187,15 +187,15 @@ export function RobotAvatarFallback({
           <path
             d="M 86 78 Q 95 65 104 78"
             fill="none"
-            stroke="#00f5ff"
+            stroke="#0ea5e9"
             strokeWidth="3.5"
             strokeLinecap="round"
             filter="url(#glow)"
           />
         ) : (
           <g>
-            <circle cx="95" cy="74" r="10" fill="#00f5ff" filter="url(#glow)" />
-            <circle cx="95" cy="74" r="6" fill="#0284c7" />
+            <circle cx="95" cy="74" r="10" fill="#0ea5e9" filter="url(#glow)" />
+            <circle cx="95" cy="74" r="6" fill="#38bdf8" />
             <circle cx="97" cy="72" r="2" fill="#ffffff" />
           </g>
         )}
@@ -207,7 +207,7 @@ export function RobotAvatarFallback({
             y1="75"
             x2="154"
             y2="75"
-            stroke="#00f5ff"
+            stroke="#0ea5e9"
             strokeWidth="3.5"
             strokeLinecap="round"
             filter="url(#glow)"
@@ -216,15 +216,15 @@ export function RobotAvatarFallback({
           <path
             d="M 136 78 Q 145 65 154 78"
             fill="none"
-            stroke="#00f5ff"
+            stroke="#0ea5e9"
             strokeWidth="3.5"
             strokeLinecap="round"
             filter="url(#glow)"
           />
         ) : (
           <g>
-            <circle cx="145" cy="74" r="10" fill="#00f5ff" filter="url(#glow)" />
-            <circle cx="145" cy="74" r="6" fill="#0284c7" />
+            <circle cx="145" cy="74" r="10" fill="#0ea5e9" filter="url(#glow)" />
+            <circle cx="145" cy="74" r="6" fill="#38bdf8" />
             <circle cx="147" cy="72" r="2" fill="#ffffff" />
           </g>
         )}

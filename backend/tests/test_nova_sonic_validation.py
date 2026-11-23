@@ -685,6 +685,8 @@ async def test_automatic_greeting_sequence_when_explicitly_enabled():
     tools = get_agent_tools_spec()
     customer_name = "Ramesh Kumar"
 
+    settings.ENABLE_AUTOMATIC_GREETING = True
+
     await driver.start_session(
         session_id=session_id,
         prompt_preamble="System instructions",
@@ -692,26 +694,42 @@ async def test_automatic_greeting_sequence_when_explicitly_enabled():
         customer_name=customer_name,
     )
 
-    # 1. Inspect event sequence: sessionStart -> promptStart -> SYSTEM block -> AUDIO_USER block
+    # 1. Inspect event sequence: sessionStart -> promptStart -> SYSTEM block -> INIT_USER block -> AUDIO_USER block
     event_names = [list(e["event"].keys())[0] for e in sent_events]
-    assert event_names[0] == "sessionStart"
-    assert event_names[1] == "promptStart"
-    assert event_names[2] == "contentStart"  # SYSTEM
-    assert event_names[3] == "textInput"     # SYSTEM
-    assert event_names[4] == "contentEnd"    # SYSTEM
-    assert event_names[5] == "contentStart"  # AUDIO_USER
+    assert event_names == [
+        "sessionStart",
+        "promptStart",
+        "contentStart",  # SYSTEM
+        "textInput",     # SYSTEM
+        "contentEnd",    # SYSTEM
+        "contentStart",  # INIT_USER
+        "textInput",     # INIT_USER
+        "contentEnd",    # INIT_USER
+        "contentStart",  # AUDIO_USER
+    ]
 
-    # 2. Verify AUDIO_USER schema and configuration
-    audio_start = sent_events[5]["event"]["contentStart"]
+    # 2. Verify INIT_USER schema and role
+    init_start = sent_events[5]["event"]["contentStart"]
+    assert init_start["type"] == "TEXT"
+    assert init_start["role"] == "USER"
+    assert init_start["interactive"] is True
+
+    init_text = sent_events[6]["event"]["textInput"]
+    assert "Ramesh Kumar" in init_text["content"]
+
+    # 3. Verify AUDIO_USER schema and configuration
+    audio_start = sent_events[8]["event"]["contentStart"]
     assert audio_start["type"] == "AUDIO"
     assert audio_start["role"] == "USER"
     assert audio_start["interactive"] is True
     assert audio_start["audioInputConfiguration"]["sampleRateHertz"] == 16000
 
-    # 3. Strict sequencing validation passes cleanly
+    # 4. Strict sequencing validation passes cleanly
     validator = NovaSonicEventValidator(strict_sequencing=True)
     for evt in sent_events:
         validator.validate_event(evt)
+
+    await driver.end_session(session_id)
 
 
 @pytest.mark.asyncio
@@ -746,7 +764,7 @@ async def test_default_microphone_first_flow_when_greeting_disabled():
     session_id = f"test_default_{uuid.uuid4().hex[:8]}"
     tools = get_agent_tools_spec()
 
-    assert settings.ENABLE_AUTOMATIC_GREETING is False
+    settings.ENABLE_AUTOMATIC_GREETING = False
 
     await driver.start_session(
         session_id=session_id,
@@ -773,6 +791,8 @@ async def test_default_microphone_first_flow_when_greeting_disabled():
     validator = NovaSonicEventValidator(strict_sequencing=True)
     for evt in sent_events:
         validator.validate_event(evt)
+
+    await driver.end_session(session_id)
 
 
 @pytest.mark.asyncio
@@ -832,6 +852,8 @@ async def test_normal_microphone_first_conversation_without_greeting():
     validator = NovaSonicEventValidator(strict_sequencing=True)
     for evt in sent_events:
         validator.validate_event(evt)
+
+    await driver.end_session(session_id)
 
 
 @pytest.mark.asyncio

@@ -28,12 +28,22 @@ class SessionState(BaseModel):
     viewed_properties: List[uuid.UUID] = Field(default_factory=list)
     compared_properties: List[uuid.UUID] = Field(default_factory=list)
     last_search_criteria: Optional[Dict[str, Any]] = None
+    selected_property: Optional[Dict[str, Any]] = None  # Active property context for follow-up questions
     booked_visit_id: Optional[uuid.UUID] = None
     turn_count: int = 0
     history: List[Dict[str, Any]] = Field(default_factory=list)
     is_active: bool = True
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def set_selected_property(self, property_data: Dict[str, Any]) -> None:
+        """Sets the active focused property for seamless follow-up questions."""
+        self.selected_property = property_data
+        self.last_updated_at = datetime.now(timezone.utc)
+
+    def get_selected_property(self) -> Optional[Dict[str, Any]]:
+        """Retrieves the active focused property context."""
+        return self.selected_property
 
     def update_requirements(self, new_req: ExtractedCustomerRequirements) -> Dict[str, Any]:
         """
@@ -205,4 +215,5 @@ class SessionState(BaseModel):
         self.is_active = False
         self.viewed_properties.clear()
         self.compared_properties.clear()
+        self.selected_property = None
         self.history.clear()
