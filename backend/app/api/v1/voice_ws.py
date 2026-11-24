@@ -12,6 +12,7 @@ from app.core.security import create_access_token, decode_access_token
 from app.db.session import SessionLocal
 from app.models.conversation import Conversation
 from app.models.customer import Customer
+from app.models.user import User
 from app.services.voice.factory import get_voice_driver
 from app.services.voice.orchestrator import VoiceSessionOrchestrator
 
@@ -236,6 +237,24 @@ async def voice_websocket_endpoint(
     else:
         audit_user_id = user_id
 
+    # Resolve tenant company_id for dataset isolation
+    company_id: Optional[uuid.UUID] = None
+    company_id_str = payload.get("company_id")
+    if company_id_str:
+        try:
+            company_id = uuid.UUID(str(company_id_str))
+        except (ValueError, TypeError):
+            company_id = None
+
+    if not company_id and audit_user_id:
+        user_rec = db.get(User, audit_user_id)
+        if user_rec and user_rec.company_id:
+            company_id = user_rec.company_id
+    elif not company_id and user_id:
+        user_rec = db.get(User, user_id)
+        if user_rec and user_rec.company_id:
+            company_id = user_rec.company_id
+
     # 4. Anti-Hijacking / Session Ownership Enforcement
     existing_conv = db.query(Conversation).filter(Conversation.session_id == session_id).first()
     if existing_conv:
@@ -259,6 +278,7 @@ async def voice_websocket_endpoint(
         user_role=user_role,
         user_id=audit_user_id,
         is_verified=is_verified,
+        company_id=company_id,
     )
 
     try:

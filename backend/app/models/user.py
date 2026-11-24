@@ -1,5 +1,6 @@
 import uuid
-from sqlalchemy import Boolean, String
+from typing import Optional
+from sqlalchemy import Boolean, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base, TimestampMixin
 from app.db.types import GUID
@@ -13,8 +14,12 @@ class User(Base, TimestampMixin):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(50), nullable=False, default="customer")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    company_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        GUID(), ForeignKey("companies.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # Relationships
+    company = relationship("Company", back_populates="users")
     customer_profile = relationship("Customer", back_populates="user", uselist=False)
     audit_logs = relationship("AuditLog", back_populates="user")
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")

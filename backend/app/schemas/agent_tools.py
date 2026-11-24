@@ -130,6 +130,31 @@ class QueryActiveDatasetToolInput(BaseModel):
     limit: int = Field(default=4, ge=1, le=10, description="Max matching records to return")
 
 
+class QueryBusinessDatasetToolInput(BaseModel):
+    """
+    Universal domain-neutral query input for any structured business dataset.
+    Dynamically maps to the active dataset's approved fields.
+    """
+    query: Optional[str] = Field(None, description="Natural language inquiry or search keywords across approved fields")
+    filters: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Dynamic field filters on approved fields. Supports exact match, partial match, or operators like {'price': {'<=': 50000}} or {'year': {'>=': 2020}}"
+    )
+    sort_by: Optional[str] = Field(None, description="Approved field name to sort matching records by")
+    sort_order: Optional[str] = Field("asc", description="'asc' or 'desc'")
+    limit: int = Field(default=4, ge=1, le=20, description="Max matching records to return")
+    intent: Optional[str] = Field(
+        "search",
+        description="Query intent: 'search', 'count', 'compare', 'aggregate', 'details'"
+    )
+    aggregate_field: Optional[str] = Field(None, description="Field name for numeric aggregation ('min', 'max', 'avg', 'sum', 'count')")
+    aggregate_op: Optional[str] = Field(None, description="Aggregation operation: 'count', 'min', 'max', 'avg', 'sum'")
+    record_identifiers: Optional[List[str]] = Field(None, description="Specific record IDs to inspect or compare")
+    conversation_context: Optional[Dict[str, Any]] = Field(None, description="Prior conversation context for follow-up questions")
+    company_id: Optional[uuid.UUID] = Field(None, description="Tenant company UUID for multi-tenant isolation")
+    dataset_id: Optional[uuid.UUID] = Field(None, description="Optional target dataset UUID for direct lookup")
+
+
 # Alias for explicit handoff semantics
 RequestHumanHandoffToolInput = TransferToHumanToolInput
 

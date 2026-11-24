@@ -13,6 +13,7 @@ const suites = [
   path.join(__dirname, "frontend_verification.mjs"),
   path.join(__dirname, "robot_voice_widget.test.mjs"),
   path.join(__dirname, "voice_fine_tuning_and_transcript.test.mjs"),
+  path.join(__dirname, "universal_dataset_admin.test.mjs"),
 ];
 
 let allPassed = true;

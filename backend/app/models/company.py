@@ -17,3 +17,5 @@ class Company(Base, TimestampMixin):
 
     # Relationships
     projects: Mapped[List["Project"]] = relationship("Project", back_populates="company")
+    users: Mapped[List["User"]] = relationship("User", back_populates="company")
+    datasets: Mapped[List["DynamicDataset"]] = relationship("DynamicDataset", back_populates="company", cascade="all, delete-orphan")

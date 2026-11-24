@@ -7,11 +7,15 @@ import openpyxl
 
 from app.services.ingestion.parsers.csv_excel import sanitize_cell_value
 
+MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
+MAX_INSPECTION_ROWS = 100_000
+
 
 def detect_data_type(values: List[Any]) -> str:
     """
     Infers the predominant data type from a sample of non-null cell values.
     Returns: 'integer', 'float', 'boolean', 'date', 'currency', 'url', 'text_short', 'text_long'
+    Completely domain-agnostic.
     """
     if not values:
         return "text_short"
@@ -40,7 +44,7 @@ def detect_data_type(values: List[Any]) -> str:
 
         s = str(val).strip()
         # Null indicator check
-        if s.lower() in ("null", "none", "n/a", "na", ""):
+        if s.lower() in ("null", "none", "n/a", "na", "", "-"):
             continue
 
         # URL check
@@ -48,8 +52,8 @@ def detect_data_type(values: List[Any]) -> str:
             url_count += 1
             continue
 
-        # Currency check (e.g. ₹, $, Cr, Crore, Lakh)
-        if re.search(r"[$€₹£]|\b(cr|crore|lakh|inr|usd)\b", s, re.IGNORECASE):
+        # Currency check (e.g. ₹, $, €, £, ¥, or currency words)
+        if re.search(r"[$€₹£¥]|\b(usd|eur|gbp|inr|cad|aud|jpy)\b", s, re.IGNORECASE):
             currency_count += 1
             continue
 
@@ -90,15 +94,18 @@ def detect_data_type(values: List[Any]) -> str:
 
 def inspect_sheet_records(
     rows: List[Tuple[Any, ...]],
-    sheet_name: str
+    sheet_name: str,
+    max_rows: int = MAX_INSPECTION_ROWS,
 ) -> Dict[str, Any]:
     """
-    Analyzes columns, types, candidate keys, and statistics for a single worksheet.
+    Analyzes columns, types, null counts, candidate keys, and sample statistics for a single worksheet.
+    Completely independent of business domain.
     """
     if not rows:
         return {
             "sheet_name": sheet_name,
             "total_rows": 0,
+            "total_columns": 0,
             "columns": [],
             "candidate_identifiers": [],
             "records": [],
@@ -107,19 +114,27 @@ def inspect_sheet_records(
     # Extract header row
     header_raw = rows[0]
     headers: List[str] = []
+    seen_headers: Set[str] = set()
+
     for i, col in enumerate(header_raw):
         clean_col = str(col).strip() if col is not None else ""
         if not clean_col:
             clean_col = f"COLUMN_{i+1}"
+        # Ensure unique column names in case of duplicate raw headers
+        base_col = clean_col
+        dup_counter = 1
+        while clean_col in seen_headers:
+            clean_col = f"{base_col}_{dup_counter}"
+            dup_counter += 1
+        seen_headers.add(clean_col)
         headers.append(clean_col)
 
-    data_rows = rows[1:]
-    total_data_rows = len(data_rows)
+    data_rows = rows[1:max_rows + 1]
 
     records: List[Dict[str, Any]] = []
     column_values: Dict[str, List[Any]] = {h: [] for h in headers}
 
-    for row_idx, row in enumerate(data_rows):
+    for row in data_rows:
         if not row or all(c is None or str(c).strip() == "" for c in row):
             continue
         row_dict: Dict[str, Any] = {}
@@ -127,12 +142,13 @@ def inspect_sheet_records(
             val = row[col_idx] if col_idx < len(row) else None
             sanitized = sanitize_cell_value(val)
             row_dict[header] = sanitized
-            if sanitized is not None and str(sanitized).strip().lower() not in ("null", "none", ""):
+            if sanitized is not None and str(sanitized).strip().lower() not in ("null", "none", "", "-"):
                 column_values[header].append(sanitized)
         records.append(row_dict)
 
     column_meta: List[Dict[str, Any]] = []
     candidate_keys: List[str] = []
+    total_records_count = len(records)
 
     for header in headers:
         values = column_values[header]
@@ -140,19 +156,23 @@ def inspect_sheet_records(
         unique_vals = list(dict.fromkeys([v for v in values if v is not None]))
         cardinality = len(unique_vals)
         non_null_count = len(values)
+        null_count = total_records_count - non_null_count
 
-        is_unique = (non_null_count == len(records)) and non_null_count > 0
+        is_unique = (non_null_count == total_records_count) and non_null_count > 0
+        # Generic identifier heuristic (ID, CODE, KEY, NUMBER, SKU, VIN, SL_NO, UID)
         is_candidate_key = is_unique or any(
-            k in header.upper() for k in ["RECORD_ID", "ID", "CODE", "KEY", "SL_NO", "UNIT_NO"]
+            k in header.upper()
+            for k in ["ID", "CODE", "KEY", "SKU", "VIN", "NUMBER", "NO", "TAG", "SL_NO", "UID"]
         )
 
-        if is_candidate_key and cardinality >= min(len(records), 5):
+        if is_candidate_key and cardinality >= min(total_records_count, 3):
             candidate_keys.append(header)
 
         column_meta.append({
             "column_name": header,
             "detected_type": inferred_type,
             "total_values": non_null_count,
+            "null_count": null_count,
             "unique_values_count": cardinality,
             "is_unique": is_unique,
             "is_candidate_identifier": header in candidate_keys,
@@ -162,7 +182,7 @@ def inspect_sheet_records(
 
     return {
         "sheet_name": sheet_name,
-        "total_rows": len(records),
+        "total_rows": total_records_count,
         "total_columns": len(headers),
         "columns": column_meta,
         "candidate_identifiers": candidate_keys,
@@ -175,7 +195,7 @@ def detect_cross_sheet_relationships(
 ) -> List[Dict[str, Any]]:
     """
     Identifies semantic relationships and foreign key references across sheets.
-    Example: Unified_AI_Dataset.COMPANY_ID -> Company_Master_Profiles.COMPANY_ID
+    Uses generic value set overlaps and header matches without domain assumptions.
     """
     relationships: List[Dict[str, Any]] = []
     sheet_names = list(sheets_data.keys())
@@ -194,8 +214,8 @@ def detect_cross_sheet_relationships(
                 for tgt_name, tgt_meta in tgt_cols.items():
                     # Exact header match or strong key match
                     if src_name == tgt_name and src_meta["detected_type"] == tgt_meta["detected_type"]:
-                        if any(k in src_name.upper() for k in ["ID", "CODE", "COMPANY", "PROJECT"]):
-                            # Check value overlap
+                        if any(k in src_name.upper() for k in ["ID", "CODE", "KEY", "NUMBER", "SKU", "REF"]):
+                            # Check sample value overlap
                             src_samples = set(src_meta.get("sample_distinct", []))
                             tgt_samples = set(tgt_meta.get("sample_distinct", []))
                             overlap = len(src_samples.intersection(tgt_samples))
@@ -217,11 +237,21 @@ def inspect_dataset_workbook(
     filename: str
 ) -> Dict[str, Any]:
     """
-    Comprehensive inspection of an uploaded workbook or CSV dataset:
-    - Detects worksheets, headers, data types, examples, candidate keys.
-    - Discovers cross-sheet relationships.
-    - Prepares metadata registry JSON without modifying source data.
+    Comprehensive, domain-agnostic inspection of an uploaded Excel or CSV dataset:
+    - Safely enforces file size limits.
+    - Discovers all worksheets, columns, inferred data types, null counts, sample values.
+    - Identifies candidate record identifiers.
+    - Detects cross-sheet foreign-key relationships.
+    - Returns structured metadata registry without writing or activating data.
     """
+    if not file_bytes:
+        raise ValueError("Uploaded file is empty (0 bytes).")
+
+    if len(file_bytes) > MAX_FILE_SIZE_BYTES:
+        raise ValueError(
+            f"File size exceeds maximum permitted limit ({MAX_FILE_SIZE_BYTES // (1024*1024)} MB)."
+        )
+
     lower = filename.lower()
     sheets_data: Dict[str, Dict[str, Any]] = {}
 
@@ -239,26 +269,31 @@ def inspect_dataset_workbook(
         sheet_name = "Primary_Dataset"
         sheets_data[sheet_name] = inspect_sheet_records(rows, sheet_name)
 
+    if not sheets_data or all(s["total_rows"] == 0 for s in sheets_data.values()):
+        raise ValueError(f"No valid data records could be extracted from {filename}.")
+
     # Cross-sheet relationships
     relationships = detect_cross_sheet_relationships(sheets_data)
 
-    # Determine primary worksheet
-    primary_sheet = "Unified_AI_Dataset"
-    if primary_sheet not in sheets_data:
-        # Pick sheet with maximum rows
-        primary_sheet = max(sheets_data.keys(), key=lambda s: sheets_data[s]["total_rows"])
+    # Pick the sheet with the most rows as primary sheet
+    primary_sheet = max(sheets_data.keys(), key=lambda s: sheets_data[s]["total_rows"])
+    total_primary_rows = sheets_data[primary_sheet]["total_rows"]
 
-    total_rows = sheets_data[primary_sheet]["total_rows"]
+    # Gather candidate identifiers across worksheets
+    primary_candidate_keys = sheets_data[primary_sheet]["candidate_identifiers"]
 
-    # Build Metadata Registry
+    # Build domain-neutral metadata registry
     metadata_registry = {
         "filename": filename,
+        "file_size_bytes": len(file_bytes),
         "inspection_timestamp": datetime.utcnow().isoformat(),
         "primary_sheet": primary_sheet,
         "total_worksheets": len(sheets_data),
-        "total_primary_rows": total_rows,
+        "total_primary_rows": total_primary_rows,
+        "candidate_identifiers": primary_candidate_keys,
         "worksheets": {
             s_name: {
+                "sheet_name": s_name,
                 "total_rows": s_data["total_rows"],
                 "total_columns": s_data["total_columns"],
                 "columns": s_data["columns"],
@@ -267,19 +302,12 @@ def inspect_dataset_workbook(
             for s_name, s_data in sheets_data.items()
         },
         "relationships": relationships,
-        "summary": {
-            "developers_column": next((c["column_name"] for c in sheets_data[primary_sheet]["columns"] if c["column_name"].upper() in ("COMPANY_NAME", "DEVELOPER", "BUILDER")), None) or next((c["column_name"] for c in sheets_data[primary_sheet]["columns"] if "COMPANY" in c["column_name"].upper()), None),
-            "projects_column": next((c["column_name"] for c in sheets_data[primary_sheet]["columns"] if any(k in c["column_name"].upper() for k in ["PROJECT", "TITLE", "FACILITY", "BUILDING", "PROPERTY", "NAME"])), None),
-            "location_column": next((c["column_name"] for c in sheets_data[primary_sheet]["columns"] if "LOCATION" in c["column_name"].upper() or "CITY" in c["column_name"].upper()), None),
-            "config_column": next((c["column_name"] for c in sheets_data[primary_sheet]["columns"] if "CONFIG" in c["column_name"].upper() or "BHK" in c["column_name"].upper()), None),
-            "status_column": next((c["column_name"] for c in sheets_data[primary_sheet]["columns"] if "STATUS" in c["column_name"].upper()), None),
-            "amenities_column": next((c["column_name"] for c in sheets_data[primary_sheet]["columns"] if "AMENIT" in c["column_name"].upper()), None),
-        }
     }
 
     return {
         "metadata_registry": metadata_registry,
         "primary_sheet": primary_sheet,
-        "total_rows": total_rows,
+        "total_rows": total_primary_rows,
         "sheets_data": sheets_data,
+        "candidate_identifiers": primary_candidate_keys,
     }

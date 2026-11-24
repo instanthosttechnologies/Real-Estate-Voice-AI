@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from app.services.agent.dispatcher import AGENT_TOOL_REGISTRY
 
 
@@ -8,6 +8,12 @@ TOOL_DESCRIPTIONS: Dict[str, str] = {
         "Query the active verified real estate portfolio dataset for developers (DLF, Godrej, Lodha, Oberoi, Prestige, Sobha, etc.), "
         "projects, cities (Gurugram, Mumbai, Bengaluru, Pune, etc.), configurations (2BHK, 3BHK, Penthouses, Offices, Plots), "
         "and amenities. Returns concise, verified facts directly from the active dataset."
+    ),
+    "query_business_dataset": (
+        "Universal query tool for structured business datasets. Supports natural-language questions, "
+        "exact or partial filters, numeric comparisons (e.g. price, year, quantity, ratings), "
+        "sorting, counting, aggregation (min, max, avg, sum), and side-by-side record comparison. "
+        "Operates strictly on verified Admin-approved columns."
     ),
     "search_properties": (
         "Search genuine database properties by city, location keyword, developer, project, property type, "
@@ -142,7 +148,7 @@ def _sanitize_schema(schema: Dict[str, Any], defs: Dict[str, Any]) -> Dict[str, 
     }
 
 
-def get_agent_tools_spec() -> List[Dict[str, Any]]:
+def get_agent_tools_spec(active_dataset: Optional[Any] = None) -> List[Dict[str, Any]]:
     """
     Generates Amazon Nova 2.5 Sonic / Bedrock compatible JSON tool specifications
     from the validated Pydantic schemas in AGENT_TOOL_REGISTRY.
@@ -150,6 +156,7 @@ def get_agent_tools_spec() -> List[Dict[str, Any]]:
     - Zero $defs or $ref references (all nested models inlined).
     - Zero anyOf/oneOf union types (flattened to compliant primitive/object types).
     - Strict object root schema conforming to Amazon Bedrock Nova specifications.
+    - Dynamically informs Nova Sonic of the approved dataset fields when active_dataset is provided.
     """
     tools_spec: List[Dict[str, Any]] = []
 
@@ -162,6 +169,15 @@ def get_agent_tools_spec() -> List[Dict[str, Any]]:
             tool_name,
             raw_schema.get("description", f"Execute {tool_name}")
         )
+
+        if tool_name == "query_business_dataset" and active_dataset:
+            approved_cols = getattr(active_dataset, "approved_fields", None)
+            domain = getattr(active_dataset, "domain_name", None) or "Business"
+            if approved_cols:
+                description += (
+                    f" Active dataset: '{active_dataset.name}'. Domain: '{domain}'. "
+                    f"Allowed queryable fields: {', '.join(approved_cols)}."
+                )
 
         tool_def = {
             "toolSpec": {

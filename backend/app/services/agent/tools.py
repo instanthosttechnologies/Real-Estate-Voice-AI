@@ -23,6 +23,7 @@ from app.schemas.agent_tools import (
     RescheduleSiteVisitToolInput,
     SearchPropertiesToolInput,
     QueryActiveDatasetToolInput,
+    QueryBusinessDatasetToolInput,
     TransferToHumanToolInput,
     UpdateLeadToolInput,
     CalculateLeadPriorityToolInput,
@@ -48,7 +49,7 @@ from app.services.real_estate.site_visits import (
     reschedule_site_visit,
 )
 from app.services.dataset.manager import get_active_dataset
-from app.services.dataset.retrieval import query_dynamic_dataset
+from app.services.dataset.retrieval import query_dynamic_dataset, query_universal_dataset
 from app.core.config import settings
 from app.services.real_estate.demo_dataset import DemoDatasetService
 import re
@@ -807,4 +808,51 @@ def tool_query_active_dataset(db: Session, args: QueryActiveDatasetToolInput) ->
             "explicitly inform the customer that it is unstated in the verified portfolio and offer to connect them with a specialist."
         ),
     )
+
+
+def tool_query_business_dataset(db: Session, args: QueryBusinessDatasetToolInput) -> AgentToolResponse:
+    """
+    Universal tool execution for querying any structured business dataset dynamically.
+    Enforces tenant isolation, whitelisted field validation, and anti-hallucination.
+    """
+    try:
+        res = query_universal_dataset(
+            db=db,
+            query_text=args.query,
+            filters=args.filters,
+            sort_by=args.sort_by,
+            sort_order=args.sort_order or "asc",
+            limit=args.limit,
+            intent=args.intent or "search",
+            aggregate_field=args.aggregate_field,
+            aggregate_op=args.aggregate_op,
+            record_identifiers=args.record_identifiers,
+            conversation_context=args.conversation_context,
+            company_id=args.company_id,
+            dataset_id=args.dataset_id,
+        )
+        return AgentToolResponse(
+            tool_name="query_business_dataset",
+            success=True,
+            data=res,
+            anti_hallucination_guidance=(
+                "Answer the customer's question strictly using the returned verified dataset values. "
+                "Never invent specifications, prices, or options not present in the returned attributes. "
+                "If an attribute is unlisted or null, clearly state that it is unavailable in the verified dataset."
+            ),
+        )
+    except ValueError as ve:
+        return AgentToolResponse(
+            tool_name="query_business_dataset",
+            success=False,
+            error_message=str(ve),
+            anti_hallucination_guidance="Inform the user of the invalid field or parameter politely.",
+        )
+    except Exception as exc:
+        return AgentToolResponse(
+            tool_name="query_business_dataset",
+            success=False,
+            error_message=f"Dataset query failure: {str(exc)}",
+        )
+
 

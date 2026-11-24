@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Coroutine, Dict, List, Optional
@@ -68,6 +69,7 @@ class VoiceSessionOrchestrator:
         user_role: str = "customer",
         user_id: Optional[uuid.UUID] = None,
         is_verified: bool = False,
+        company_id: Optional[uuid.UUID] = None,
     ):
         self.session_id = session_id
         self.driver = driver
@@ -75,6 +77,7 @@ class VoiceSessionOrchestrator:
         self.customer_id = customer_id
         self.user_id = user_id
         self.is_verified = is_verified
+        self.company_id = company_id
 
         if getattr(settings, "DRY_RUN_TEST_MODE", False) or self.user_role == "local_tester":
             self.db = DryRunSessionProxy(db)
@@ -101,22 +104,43 @@ class VoiceSessionOrchestrator:
         )
 
     def _build_system_preamble(self, returning_context: Optional[str] = None) -> str:
+        # Fetch active dataset to adapt role and greeting dynamically (scoped to tenant company_id if present)
+        active_ds = None
+        try:
+            from app.services.dataset.manager import get_active_dataset
+            active_ds = get_active_dataset(self.db, company_id=self.company_id)
+        except Exception:
+            pass
+
+        has_custom_domain = bool(active_ds and active_ds.domain_name)
+        domain_title = (active_ds.domain_name if has_custom_domain else "Real Estate")
+
+        if has_custom_domain:
+            role_desc = (
+                f"You are an expert, professional, and courteous AI {domain_title} Voice Advisor. "
+                f"Your objective is to assist customers with verified facts, specifications, comparisons, "
+                f"and inquiries from our active {domain_title} catalog."
+            )
+        else:
+            role_desc = (
+                "You are an expert, professional, and courteous Real Estate Voice AI Advisor. "
+                "Your objective is to understand customer preferences (location, configuration, budget, currency, amenities), "
+                "search genuine database inventory, verify live pricing and unit availability, and schedule site visits."
+            )
+
         preamble = (
-            "You are an expert, professional, and courteous Real Estate Voice AI Advisor. "
-            "Your objective is to understand customer preferences (location, configuration, budget, currency, amenities), "
-            "search genuine database inventory, verify live pricing and unit availability, and schedule site visits. "
-            "\n\nVOICE INTERACTION & MULTI-TURN CONVERSATION GUIDELINES:\n"
-            "1. Tone: Friendly, natural, polite Indian English suitable for real estate customers.\n"
+            f"{role_desc}\n\n"
+            "VOICE INTERACTION & MULTI-TURN CONVERSATION GUIDELINES:\n"
+            f"1. Tone: Friendly, natural, polite English suitable for {domain_title.lower()} inquiries.\n"
             "2. Spoken Brevity: Keep responses concise (1 to 2 sentences) and natural for spoken audio. Avoid lengthy lists or robotic replies.\n"
-            "3. One Question at a Time: When gathering missing details (such as BHK, location, or budget), ask ONLY ONE short follow-up question at a time.\n"
-            "4. Multi-Turn Preference Memory: Retain all established requirements (BHK, location, budget, amenities) across turns. "
-            "When the customer changes or corrects a preference (e.g., 'Actually, I want a 3BHK' or 'Change budget to 90 lakhs'), "
-            "immediately update that configuration while preserving all other previously stated preferences.\n"
-            "5. Phrasing Support: Understand varied phrasing like 'two BHK', 'two bedroom', '2BHK flat', 'around 80 lakhs', or '1 crore'.\n"
+            "3. One Question at a Time: When gathering missing details (such as preferences, budget, or specifications), ask ONLY ONE short follow-up question at a time.\n"
+            "4. Multi-Turn Preference Memory: Retain all established requirements across turns. "
+            "When the customer changes or corrects a preference, immediately update that configuration while preserving all other previously stated preferences.\n"
+            "5. Phrasing Support: Understand varied conversational phrasing and terminology naturally.\n"
             "6. Greetings & Interactivity: Respond warmly to greetings ('Hello, can you hear me?'), questions, and interruptions without restarting the conversation.\n"
             "\nSTRICT ANTI-HALLUCINATION RULES:\n"
-            "1. NEVER invent property prices, availability, project details, or configurations. "
-            "Always call the designated database tools (search_properties or query_active_dataset) to retrieve authentic records.\n"
+            "1. NEVER invent specifications, prices, availability, or options. "
+            "Always call designated database tools (query_business_dataset, query_active_dataset, search_properties) to retrieve authentic records.\n"
             "2. Currencies must never be silently converted (e.g. USD vs INR). Support explicit ISO currencies.\n"
             "3. Site visits must only be scheduled within project operating hours (09:00 - 18:00 project local time).\n"
             "4. Human handoff creates a priority callback ticket; never claim an active phone transfer is ringing.\n"
@@ -136,18 +160,43 @@ class VoiceSessionOrchestrator:
                 "- Answer questions based strictly on the active portfolio dataset."
             )
 
-        try:
-            from app.services.dataset.manager import get_active_dataset
-            active_ds = get_active_dataset(self.db)
-            if active_ds:
+        if active_ds:
+            approved_cols = active_ds.approved_fields or []
+            disp_id = active_ds.display_identifier or "Item"
+            preamble += (
+                f"\n\nACTIVE VERIFIED DATASET: {active_ds.name} (v{active_ds.version})\n"
+                f"- Domain: {domain_title}\n"
+                f"- Primary Sheet: {active_ds.primary_sheet} ({active_ds.total_rows} verified records)\n"
+            )
+            if approved_cols:
                 preamble += (
-                    f"\n\nACTIVE VERIFIED DATASET: {active_ds.name} (v{active_ds.version})\n"
-                    f"- Primary Sheet: {active_ds.primary_sheet} ({active_ds.total_rows} verified records)\n"
+                    f"- Approved Queryable Fields: {', '.join(approved_cols)}\n"
+                    f"- Record Display Identifier: {disp_id}\n"
+                    "- Ground all questions strictly in this dataset using query_business_dataset.\n"
+                    "- If a specific detail is not stated in the record, state that it is unlisted in the verified catalog."
+                )
+            else:
+                preamble += (
                     "- Ground all property questions strictly in this dataset using search_properties or query_active_dataset.\n"
                     "- If a specific detail is not stated in the record, state that it is unlisted in the verified portfolio."
                 )
-        except Exception:
-            pass
+
+        # Dynamic welcome greeting resolution
+        if active_ds and active_ds.welcome_greeting:
+            base_greeting = active_ds.welcome_greeting
+        else:
+            base_greeting = "Hello! Welcome to BrainMagic Real Estate. I'm your AI property assistant. Are you looking to buy or rent a property?"
+
+        if self.customer_name:
+            if "hello" not in base_greeting.lower():
+                named_greeting = f"Hello {self.customer_name}! {base_greeting}"
+            else:
+                named_greeting = base_greeting.replace("{customer_name}", self.customer_name).replace("{name}", self.customer_name)
+                if self.customer_name not in named_greeting:
+                    clean_rest = re.sub(r"(?i)^hello[\s!,.]*", "", base_greeting).strip()
+                    named_greeting = f"Hello {self.customer_name}! {clean_rest}"
+        else:
+            named_greeting = base_greeting
 
         enable_auto_greeting = getattr(settings, "ENABLE_AUTOMATIC_GREETING", True)
         if self.customer_name:
@@ -162,34 +211,34 @@ class VoiceSessionOrchestrator:
                     f"\n\nCUSTOMER IDENTITY & AUTOMATIC OPENING GREETING:\n"
                     f"- You are conversing directly with {self.customer_name}.\n"
                     f"- Start the conversation warmly by speaking the opening greeting first: "
-                    f"'Hello {self.customer_name}! Welcome to BrainMagic Real Estate. I'm your AI property assistant. Are you looking to buy or rent a property?'\n"
-                    f"- Follow-up: Ask only ONE short follow-up question at a time to determine property type, BHK configuration, preferred city/neighborhood, and budget range.\n"
-                    f"- Grounding: Recommend properties exclusively by executing search_properties or query_active_dataset on the 166 verified records. Never invent project names, prices, or availability."
+                    f"'{named_greeting}'\n"
+                    f"- Follow-up: Ask only ONE short follow-up question at a time to determine customer requirements.\n"
+                    f"- Grounding: Answer exclusively using query_business_dataset, search_properties, or query_active_dataset on verified records. Never invent options, prices, or availability."
                 )
             else:
                 preamble += (
                     f"\n\nCUSTOMER IDENTITY (MICROPHONE-FIRST MODE):\n"
                     f"- You are conversing directly with {self.customer_name}.\n"
                     f"- The customer will speak first into the microphone. Listen attentively and greet them warmly in your first response: "
-                    f"'Hello {self.customer_name}! Welcome to BrainMagic Real Estate. I'm your AI property assistant. Are you looking to buy or rent a property?'\n"
-                    f"- Follow-up: Ask only ONE short follow-up question at a time to determine property type, BHK configuration, preferred city/neighborhood, and budget range.\n"
-                    f"- Grounding: Recommend properties exclusively by executing search_properties or query_active_dataset on the 166 verified records. Never invent project names, prices, or availability."
+                    f"'{named_greeting}'\n"
+                    f"- Follow-up: Ask only ONE short follow-up question at a time to determine customer requirements.\n"
+                    f"- Grounding: Answer exclusively using query_business_dataset, search_properties, or query_active_dataset on verified records."
                 )
         elif enable_auto_greeting:
             preamble += (
-                "\n\nAUTOMATIC OPENING GREETING:\n"
-                "- Start the conversation warmly by speaking the opening greeting first: "
-                "'Hello! Welcome to BrainMagic Real Estate. I'm your AI property assistant. Are you looking to buy or rent a property?'\n"
-                "- Follow-up: Ask only ONE short follow-up question at a time to determine property type, BHK configuration, preferred city/neighborhood, and budget range.\n"
-                "- Grounding: Recommend properties exclusively by executing search_properties or query_active_dataset on the 166 verified records. Never invent project names, prices, or availability."
+                f"\n\nAUTOMATIC OPENING GREETING:\n"
+                f"- Start the conversation warmly by speaking the opening greeting first: "
+                f"'{named_greeting}'\n"
+                f"- Follow-up: Ask only ONE short follow-up question at a time to determine customer requirements.\n"
+                f"- Grounding: Answer exclusively using query_business_dataset, search_properties, or query_active_dataset on verified records."
             )
         else:
             preamble += (
-                "\n\nCONVERSATION GUIDELINES (MICROPHONE-FIRST MODE):\n"
-                "- The customer will speak first into the microphone. Listen attentively and greet them warmly in your first response: "
-                "'Hello! Welcome to BrainMagic Real Estate. I'm your AI property assistant. Are you looking to buy or rent a property?'\n"
-                "- Follow-up: Ask only ONE short follow-up question at a time to determine property type, BHK configuration, preferred city/neighborhood, and budget range.\n"
-                "- Grounding: Recommend properties exclusively by executing search_properties or query_active_dataset on the 166 verified records. Never invent project names, prices, or availability."
+                f"\n\nCONVERSATION GUIDELINES (MICROPHONE-FIRST MODE):\n"
+                f"- The customer will speak first into the microphone. Listen attentively and greet them warmly in your first response: "
+                f"'{named_greeting}'\n"
+                f"- Follow-up: Ask only ONE short follow-up question at a time to determine customer requirements.\n"
+                f"- Grounding: Answer exclusively using query_business_dataset, search_properties, or query_active_dataset on verified records."
             )
 
         if getattr(settings, "DEMO_DATASET_MODE", False):
@@ -357,7 +406,12 @@ class VoiceSessionOrchestrator:
             preamble = "You are a professional real estate voice assistant. Answer customer questions politely and clearly."
             logger.info("[Orchestrator] Running in DIAGNOSTIC_MINIMAL_VOICE_MODE (zero tools, minimal prompt)")
         else:
-            tools_spec = get_agent_tools_spec()
+            try:
+                from app.services.dataset.manager import get_active_dataset
+                active_ds = get_active_dataset(self.db, company_id=self.company_id)
+            except Exception:
+                active_ds = None
+            tools_spec = get_agent_tools_spec(active_dataset=active_ds)
             preamble = self._build_system_preamble(returning_context=returning_context)
 
         # Determine session duration: 600s customer/default, capped by VOICE_SESSION_MAX_DURATION_SECONDS
@@ -506,10 +560,14 @@ class VoiceSessionOrchestrator:
                     )
 
                     # Intercept and execute strictly via Phase 2 agent dispatcher
+                    call_args = dict(tool_req.arguments or {})
+                    if self.company_id and "company_id" not in call_args:
+                        call_args["company_id"] = str(self.company_id)
+
                     tool_resp = dispatch_agent_tool(
                         db=self.db,
                         tool_name=tool_req.tool_name,
-                        raw_arguments=tool_req.arguments,
+                        raw_arguments=call_args,
                     )
 
                     # Multi-turn state tracking upon successful tool execution

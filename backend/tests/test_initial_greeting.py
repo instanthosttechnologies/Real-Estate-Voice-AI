@@ -289,33 +289,100 @@ async def test_customer_interruption_supported():
     await driver.end_session(session_id)
 
 
+@pytest.mark.asyncio
+async def test_customer_portal_voice_session_start_regression():
+    """
+    Regression test for:
+    'Start New Conversation returns to STANDING BY / No Active Conversation without playing AI greeting.'
+    Verifies:
+    1. A customer session with customer_name (e.g. Ramesh Kumar) initializes cleanly.
+    2. _build_system_preamble() executes regex cleaning without NameError: name 're' is not defined.
+    3. The WebSocket pipeline emits session_started, assistant greeting transcript, and audible PCM audio chunks.
+    4. Session can be stopped and a new conversation started cleanly without state corruption.
+    """
+    driver = get_voice_driver(override_mock=True)
+
+    for iteration in [1, 2]:
+        session_id = f"test_cust_portal_{uuid.uuid4().hex[:8]}"
+        orchestrator = VoiceSessionOrchestrator(
+            session_id=session_id,
+            driver=driver,
+            db=None,
+            customer_id=None,
+            user_role="customer",
+        )
+        orchestrator.customer_name = "Ramesh Kumar"
+
+        # Start orchestrator - must not throw NameError
+        await orchestrator.start()
+        assert orchestrator.has_greeted is True
+
+        sent_texts = []
+        sent_bytes = []
+
+        async def mock_send_text(msg: str):
+            sent_texts.append(json.loads(msg))
+
+        async def mock_send_bytes(b: bytes):
+            sent_bytes.append(b)
+
+        pipeline_task = asyncio.create_task(
+            orchestrator.run_pipeline(send_text=mock_send_text, send_bytes=mock_send_bytes)
+        )
+        await asyncio.sleep(0.1)
+
+        # 1. Verify session_started
+        assert any(m.get("type") == "session_started" for m in sent_texts), f"Iteration {iteration}: missing session_started"
+
+        # 2. Verify greeting transcript addressed to customer
+        assistant_transcripts = [m for m in sent_texts if m.get("type") == "transcript" and m.get("role") == "assistant"]
+        assert len(assistant_transcripts) >= 1, f"Iteration {iteration}: missing assistant greeting transcript"
+        assert "Ramesh Kumar" in assistant_transcripts[0]["delta"], f"Iteration {iteration}: customer name not in greeting"
+
+        # 3. Verify audio output
+        assert len(sent_bytes) >= 1, f"Iteration {iteration}: missing greeting audio bytes"
+        assert len(sent_bytes[0]) > 0, f"Iteration {iteration}: empty greeting audio"
+
+        # 4. Clean close
+        await orchestrator.close()
+        pipeline_task.cancel()
+        try:
+            await pipeline_task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+
 async def run_all_checks():
     print("==================================================================", flush=True)
     print("   AI-FIRST GREETING & PROTOCOL BOUNDED VERIFICATION SUITE         ", flush=True)
     print("==================================================================", flush=True)
 
-    print("[1/5] Testing mock voice driver initial greeting audio emission...", flush=True)
+    print("[1/6] Testing mock voice driver initial greeting audio emission...", flush=True)
     await asyncio.wait_for(test_mock_voice_driver_emits_audio_greeting_first(), timeout=5.0)
     print("      -> PASS: Mock driver emits assistant greeting text and 24kHz audio frames", flush=True)
 
-    print("[2/5] Testing voice session orchestrator greeting pipeline & deduplication...", flush=True)
+    print("[2/6] Testing voice session orchestrator greeting pipeline & deduplication...", flush=True)
     await asyncio.wait_for(test_orchestrator_initial_greeting_pipeline_and_no_duplicates(), timeout=5.0)
     print("      -> PASS: Orchestrator streams greeting, marks has_greeted, avoids duplicates", flush=True)
 
-    print("[3/5] Testing Nova Sonic Bedrock EventStream sequence with greeting enabled...", flush=True)
+    print("[3/6] Testing customer portal voice session start & restart regression...", flush=True)
+    await asyncio.wait_for(test_customer_portal_voice_session_start_regression(), timeout=5.0)
+    print("      -> PASS: Fixed bug - customer portal starts cleanly, plays greeting, and restarts seamlessly", flush=True)
+
+    print("[4/6] Testing Nova Sonic Bedrock EventStream sequence with greeting enabled...", flush=True)
     await asyncio.wait_for(test_nova_sonic_event_sequence_greeting_enabled(), timeout=5.0)
     print("      -> PASS: Bedrock sequence is sessionStart->promptStart->SYSTEM->INIT_USER->AUDIO_USER", flush=True)
 
-    print("[4/5] Testing Nova Sonic Bedrock EventStream with greeting disabled (mic-first)...", flush=True)
+    print("[5/6] Testing Nova Sonic Bedrock EventStream with greeting disabled (mic-first)...", flush=True)
     await asyncio.wait_for(test_nova_sonic_event_sequence_greeting_disabled(), timeout=5.0)
     print("      -> PASS: Disabled path bypasses INIT_USER and directly opens AUDIO_USER", flush=True)
 
-    print("[5/5] Testing customer speech interruption handling...", flush=True)
+    print("[6/6] Testing customer speech interruption handling...", flush=True)
     await asyncio.wait_for(test_customer_interruption_supported(), timeout=5.0)
     print("      -> PASS: Interruption drains queued audio and emits INTERRUPTED event", flush=True)
 
     print("==================================================================", flush=True)
-    print("   ALL 5 OFFLINE GREETING VERIFICATION CHECKS PASSED CLEANLY!     ", flush=True)
+    print("   ALL 6 OFFLINE GREETING VERIFICATION CHECKS PASSED CLEANLY!     ", flush=True)
     print("==================================================================", flush=True)
 
 
