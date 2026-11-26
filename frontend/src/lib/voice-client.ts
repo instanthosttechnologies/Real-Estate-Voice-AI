@@ -65,7 +65,7 @@ export class VoiceClient {
   constructor(options: VoiceClientOptions) {
     this.sessionId = options.sessionId;
     this.accessToken = options.accessToken;
-    this.wsUrl = options.wsUrl || process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/api/v1/ws/voice";
+    this.wsUrl = options.wsUrl || process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8001/api/v1/ws/voice";
     this.onStateChange = options.onStateChange;
     this.onError = options.onError;
     this.onSiteVisitBooked = options.onSiteVisitBooked;

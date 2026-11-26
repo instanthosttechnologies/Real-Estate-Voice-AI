@@ -32,11 +32,14 @@ app.add_middleware(
 
 # Register V1 API Routers
 app.include_router(auth.router, prefix=settings.API_V1_STR)
+app.include_router(auth.router)  # Root alias for /auth/*
 app.include_router(customer.router, prefix=settings.API_V1_STR)
+app.include_router(customer.router)  # Root alias for /customer/*
 app.include_router(ingestion.router, prefix=settings.API_V1_STR)
 app.include_router(dataset_admin.router, prefix=settings.API_V1_STR)
 app.include_router(admin.router, prefix=settings.API_V1_STR)
 app.include_router(appointments.router, prefix=settings.API_V1_STR)
+app.include_router(appointments.router)  # Root alias for /appointments/*
 app.include_router(super_owner.router, prefix=settings.API_V1_STR)
 app.include_router(voice_ws.router, prefix=settings.API_V1_STR)
 app.include_router(voice_ws.router)  # Also expose directly at /ws/voice/{session_id}

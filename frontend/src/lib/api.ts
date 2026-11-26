@@ -3,7 +3,8 @@
  * Handles JWT token storage, automatic refresh-token rotation, and typed endpoints.
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001/api/v1";
+const API_BASE = rawApiUrl.endsWith("/api/v1") ? rawApiUrl : `${rawApiUrl.replace(/\/+$/, "")}/api/v1`;
 
 export interface UserSession {
   userId: string;
