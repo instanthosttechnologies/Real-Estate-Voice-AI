@@ -87,3 +87,12 @@ __pycache__/
 *.db
 db_backups/
 *.tsbuildinfo
+*.zip
+*.bak
+DemoBackup_*/
+VoiceBackup_*/
+README*.txt
+backend/tests/test_natural_conversation_turn_taking.py
+frontend/test/mock_speech_synthesis.test.mjs
+frontend/test/voice_client_stale_callback_regression.cjs
+

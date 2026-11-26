@@ -79,7 +79,7 @@ class Settings(BaseSettings):
     NOVA_SONIC_MAX_TOKENS: int = 1024
     NOVA_SONIC_INPUT_SAMPLE_RATE: int = 16000
     NOVA_SONIC_OUTPUT_SAMPLE_RATE: int = 24000
-    NOVA_SONIC_ENDPOINTING_SENSITIVITY: str = "HIGH"  # HIGH (~1.5s pause) for fast natural turn-taking
+    NOVA_SONIC_ENDPOINTING_SENSITIVITY: str = os.getenv("NOVA_SONIC_ENDPOINTING_SENSITIVITY", "MEDIUM")  # MEDIUM (~2.0s pause) for natural conversational turn-taking
 
     # Storage Paths
     UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "storage/uploads")

@@ -44,6 +44,8 @@ export class VoiceClient {
   private initTimeoutTimer: any = null;
   private muteGainNode: GainNode | null = null;
   private isPlaying = false;
+  private vocalBargeInFrames = 0;
+  private playbackStartTime = 0;
 
   private sessionId: string;
   private accessToken: string;
@@ -381,19 +383,67 @@ export class VoiceClient {
         if (!this.isConnected || this.isMuted) return;
 
         const inputData = e.inputBuffer.getChannelData(0);
-        // Convert Float32 to 16-bit Linear PCM
-        const pcm16 = new Int16Array(inputData.length);
+        const actualRate = e.inputBuffer.sampleRate || this.audioContext?.sampleRate || 24000;
+        let channelData = inputData;
 
-        if (this.isPlaying) {
-          // Zeroed PCM keeps duplex stream open with 0 acoustic feedback/interruption
-          if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(pcm16.buffer);
+        // Sample rate matching: ensure transmitted PCM is strictly 24000 Hz matching backend expectation
+        if (actualRate !== 24000 && actualRate > 0) {
+          const ratio = 24000 / actualRate;
+          const targetLength = Math.round(inputData.length * ratio);
+          const resampled = new Float32Array(targetLength);
+          for (let i = 0; i < targetLength; i++) {
+            const srcIdx = i / ratio;
+            const idx = Math.floor(srcIdx);
+            const frac = srcIdx - idx;
+            if (idx >= inputData.length - 1) {
+              resampled[i] = inputData[inputData.length - 1];
+            } else {
+              resampled[i] = inputData[idx] * (1 - frac) + inputData[idx + 1] * frac;
+            }
           }
-          return;
+          channelData = resampled;
         }
 
-        for (let i = 0; i < inputData.length; i++) {
-          const s = Math.max(-1, Math.min(1, inputData[i]));
+        if (this.isPlaying) {
+          // Acoustic Echo Suppression & Natural Barge-In:
+          let sumSquares = 0;
+          for (let i = 0; i < channelData.length; i++) {
+            sumSquares += channelData[i] * channelData[i];
+          }
+          const rms = Math.sqrt(sumSquares / channelData.length);
+
+          // Grace period: during first 400ms of speech, the browser's acoustic echo cancellation filter
+          // is adapting to speaker output; ignore transient echo spikes unless overwhelmingly loud (RMS > 0.20)
+          const timeSincePlaybackStart = Date.now() - this.playbackStartTime;
+          const isGracePeriod = timeSincePlaybackStart < 400;
+          const bargeInThreshold = isGracePeriod ? 0.20 : 0.08;
+
+          if (rms > bargeInThreshold) {
+            this.vocalBargeInFrames++;
+          } else {
+            this.vocalBargeInFrames = 0;
+          }
+
+          // Require 2 consecutive frames (~340ms) of sustained vocal energy to confirm real customer barge-in
+          if (this.vocalBargeInFrames >= 2) {
+            console.log(`[VoiceClient] Natural customer barge-in confirmed (RMS=${rms.toFixed(3)}). Interrupting assistant playback.`);
+            this.vocalBargeInFrames = 0;
+            this.interrupt();
+            // Allow this frame to fall through and be streamed to the backend as customer speech
+          } else {
+            // Send silence frames to maintain stream continuity without echo feedback
+            const zeroPcm = new Int16Array(channelData.length);
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+              this.ws.send(zeroPcm.buffer);
+            }
+            return;
+          }
+        }
+
+        // Convert Float32 to 16-bit Linear PCM at guaranteed 24000 Hz
+        const pcm16 = new Int16Array(channelData.length);
+        for (let i = 0; i < channelData.length; i++) {
+          const s = Math.max(-1, Math.min(1, channelData[i]));
           pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
         }
 
@@ -401,7 +451,7 @@ export class VoiceClient {
           this.ws.send(pcm16.buffer);
           framesSentCount++;
           if (framesSentCount <= 3 || framesSentCount % 50 === 0) {
-            console.log(`[VoiceClient] Streaming mic frame #${framesSentCount} (${pcm16.byteLength} bytes)`);
+            console.log(`[VoiceClient] Streaming mic frame #${framesSentCount} (${pcm16.byteLength} bytes at 24kHz)`);
           }
         }
       };
@@ -472,6 +522,9 @@ export class VoiceClient {
         }
       };
 
+      if (!this.isPlaying) {
+        this.playbackStartTime = Date.now();
+      }
       this.isPlaying = true;
       this.setState("speaking");
 
@@ -483,12 +536,13 @@ export class VoiceClient {
       this.playbackEndTimer = setTimeout(() => {
         if (this.audioContext && this.audioContext.currentTime >= this.scheduledEndTime - 0.04) {
           this.isPlaying = false;
+          this.vocalBargeInFrames = 0;
           this.lipSyncEngine.reset();
           if (this.isConnected && this.state !== "completed" && this.state !== "error") {
             this.setState("listening");
           }
         }
-      }, remainingMs + 25);
+      }, remainingMs + 100);
     } catch (err) {
       console.error("Error decoding PCM audio frame:", err);
     }
@@ -511,6 +565,7 @@ export class VoiceClient {
     this.audioQueue = [];
     this.scheduledEndTime = 0;
     this.isPlaying = false;
+    this.vocalBargeInFrames = 0;
     this.lipSyncEngine.reset();
   }
 

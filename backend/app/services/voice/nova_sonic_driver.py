@@ -192,6 +192,7 @@ class AmazonNovaSonicDriver(VoiceDriver):
             "max_duration": timeout_ceiling,
             "stream_lock": stream_lock,
             "audio_chunks_sent": 0,
+            "resample_state": None,
         }
 
         # Initialize transport stream
@@ -226,7 +227,7 @@ class AmazonNovaSonicDriver(VoiceDriver):
                 top_p=settings.NOVA_SONIC_TOP_P,
                 endpointing_sensitivity=getattr(settings, "NOVA_SONIC_ENDPOINTING_SENSITIVITY", "HIGH"),
             )
-            await _send_init_event(session_start_evt, "sessionStart", 0.04)
+            await _send_init_event(session_start_evt, "sessionStart", 0.2)
             if session_id not in self._active_sessions:
                 return
 
@@ -237,7 +238,7 @@ class AmazonNovaSonicDriver(VoiceDriver):
                 voice_id=settings.NOVA_SONIC_VOICE_ID,
                 output_sample_rate=settings.NOVA_SONIC_OUTPUT_SAMPLE_RATE,
             )
-            await _send_init_event(prompt_start_evt, "promptStart", 0.04)
+            await _send_init_event(prompt_start_evt, "promptStart", 0.3)
             if session_id not in self._active_sessions:
                 return
 
@@ -249,7 +250,7 @@ class AmazonNovaSonicDriver(VoiceDriver):
                         content_name=system_content_name,
                     ),
                     "contentStart(SYSTEM)",
-                    0.02,
+                    0.05,
                 )
                 if session_id not in self._active_sessions:
                     return
@@ -261,7 +262,7 @@ class AmazonNovaSonicDriver(VoiceDriver):
                         text=prompt_preamble,
                     ),
                     "textInput(SYSTEM)",
-                    0.02,
+                    0.05,
                 )
                 if session_id not in self._active_sessions:
                     return
@@ -272,52 +273,7 @@ class AmazonNovaSonicDriver(VoiceDriver):
                         content_name=system_content_name,
                     ),
                     "contentEnd(SYSTEM)",
-                    0.02,
-                )
-                if session_id not in self._active_sessions:
-                    return
-
-            # 4. If automatic greeting is enabled, initiate conversational opening turn via USER text block
-            enable_auto_greeting = getattr(settings, "ENABLE_AUTOMATIC_GREETING", True)
-            if enable_auto_greeting:
-                init_user_content_name = f"user_init_{uuid.uuid4().hex[:8]}"
-                await _send_init_event(
-                    BedrockNovaSonicSerializer.serialize_text_content_start(
-                        prompt_name=prompt_name,
-                        content_name=init_user_content_name,
-                        role="USER",
-                        interactive=True,
-                    ),
-                    "contentStart(INIT_USER)",
-                    0.02,
-                )
-                if session_id not in self._active_sessions:
-                    return
-
-                init_text = (
-                    f"Customer {customer_name.strip()} has joined the conversation. Greet the customer warmly now."
-                    if customer_name
-                    else "The customer has joined the conversation. Greet the customer warmly now."
-                )
-                await _send_init_event(
-                    BedrockNovaSonicSerializer.serialize_text_input(
-                        prompt_name=prompt_name,
-                        content_name=init_user_content_name,
-                        text=init_text,
-                    ),
-                    "textInput(INIT_USER)",
-                    0.02,
-                )
-                if session_id not in self._active_sessions:
-                    return
-
-                await _send_init_event(
-                    BedrockNovaSonicSerializer.serialize_content_end(
-                        prompt_name=prompt_name,
-                        content_name=init_user_content_name,
-                    ),
-                    "contentEnd(INIT_USER)",
-                    0.02,
+                    0.3,
                 )
                 if session_id not in self._active_sessions:
                     return
@@ -330,7 +286,7 @@ class AmazonNovaSonicDriver(VoiceDriver):
                     sample_rate=settings.NOVA_SONIC_INPUT_SAMPLE_RATE,
                 ),
                 "contentStart(AUDIO_USER)",
-                0.0,
+                0.1,
             )
 
         except asyncio.TimeoutError as exc:
@@ -402,7 +358,11 @@ class AmazonNovaSonicDriver(VoiceDriver):
         target_rate = settings.NOVA_SONIC_INPUT_SAMPLE_RATE
         if in_rate != target_rate:
             from app.services.voice.audio_utils import resample_pcm_s16le
-            audio_bytes = resample_pcm_s16le(audio_bytes, in_rate, target_rate)
+            resample_state = session_meta.get("resample_state")
+            audio_bytes, new_state = resample_pcm_s16le(
+                audio_bytes, in_rate, target_rate, state=resample_state, return_state=True
+            )
+            session_meta["resample_state"] = new_state
 
         if connection:
             audio_evt = BedrockNovaSonicSerializer.serialize_audio_input(

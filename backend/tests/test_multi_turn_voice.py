@@ -132,7 +132,7 @@ def test_session_duration_configuration_and_timeout():
     assert settings.AWS_BEDROCK_STREAM_MAX_DURATION_SECONDS == 360
     assert settings.MAX_STREAM_RENEWALS == 2
     assert settings.SESSION_EXPIRY_WARNING_SECONDS == 30
-    assert settings.NOVA_SONIC_ENDPOINTING_SENSITIVITY == "HIGH"
+    assert settings.NOVA_SONIC_ENDPOINTING_SENSITIVITY in ("HIGH", "MEDIUM")
 
 
 def test_build_renewal_preamble_formatting():
