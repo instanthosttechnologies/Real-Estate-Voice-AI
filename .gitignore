@@ -91,6 +91,7 @@ db_backups/
 *.bak
 DemoBackup_*/
 VoiceBackup_*/
+RecoveryBackup_*/
 README*.txt
 backend/tests/test_natural_conversation_turn_taking.py
 frontend/test/mock_speech_synthesis.test.mjs
