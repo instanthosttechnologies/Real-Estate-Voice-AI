@@ -88,18 +88,35 @@ class CalculateLeadPriorityToolInput(BaseModel):
 
 
 class CheckVisitSlotsToolInput(BaseModel):
-    project_id: uuid.UUID = Field(..., description="Project UUID to check slots for")
-    target_date: date = Field(..., description="Date for appointment (YYYY-MM-DD)")
+    project_id: Optional[Any] = Field(None, description="Project identifier (UUID, Project ID, or project name)")
+    project_identifier: Optional[str] = Field(None, description="Project or property name, e.g. 'Godrej Aristocrat', 'Sobha Neopolis'")
+    target_date: Optional[Any] = Field(None, description="Date for appointment (YYYY-MM-DD or relative terms like 'tomorrow', 'Saturday')")
+    visit_date: Optional[str] = Field(None, description="Visit date string e.g. 'tomorrow', '2026-11-28'")
 
 
 class BookSiteVisitToolInput(BaseModel):
-    customer_id: uuid.UUID = Field(..., description="Customer UUID")
-    project_id: uuid.UUID = Field(..., description="Project UUID")
-    unit_id: Optional[uuid.UUID] = Field(None, description="Optional specific unit UUID")
-    scheduled_start: datetime = Field(..., description="Visit start timestamp (ISO 8601)")
-    scheduled_end: Optional[datetime] = None
+    customer_id: Optional[Any] = Field(None, description="Optional Customer UUID")
+    project_id: Optional[Any] = Field(None, description="Project UUID, Project ID (e.g. PROJ_001), or project name")
+    unit_id: Optional[Any] = Field(None, description="Optional specific unit UUID")
+    scheduled_start: Optional[Any] = Field(None, description="Visit start timestamp (ISO 8601)")
+    scheduled_end: Optional[Any] = None
     assigned_agent_name: Optional[str] = "Senior Sales Advisor"
     customer_notes: Optional[str] = None
+    customer_name: Optional[str] = Field(None, description="Customer's full name")
+    contact_number: Optional[str] = Field(None, description="Customer phone number or contact info")
+    property_name: Optional[str] = Field(None, description="Property/Project name, e.g. 'Godrej Aristocrat' or 'Sobha Neopolis'")
+    visit_date: Optional[str] = Field(None, description="Visit date (YYYY-MM-DD or relative like 'tomorrow', 'day after tomorrow', '2026-11-28')")
+    visit_time: Optional[str] = Field(None, description="Visit time slot, e.g. '10:00 AM', '02:00 PM', '11:00 AM - 12:00 PM'")
+    appointment_type: Optional[str] = Field("In-Person Site Visit", description="'In-Person Site Visit' or 'Video Consultation'")
+
+
+class ShowPropertyImagesToolInput(BaseModel):
+    project_name: Optional[str] = Field(None, description="Project or property name to show pictures for, e.g. 'Godrej Aristocrat', 'Sobha Neopolis'")
+    project_id: Optional[str] = Field(None, description="Optional Project ID e.g. 'PROJ_001'")
+
+
+class GetDatasetSummaryToolInput(BaseModel):
+    city: Optional[str] = Field(None, description="Optional city name e.g. 'Gurugram', 'Bengaluru', 'Mumbai', 'Pune'")
 
 
 class RescheduleSiteVisitToolInput(BaseModel):

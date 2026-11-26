@@ -6,6 +6,7 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { VoiceOrb } from "@/components/VoiceOrb";
 import { OrbVisualizer } from "@/components/OrbVisualizer";
 import { RobotAvatar3D } from "@/components/RobotAvatar3D";
+import { PropertyImageGallery, PropertyGalleryData } from "@/components/PropertyImageGallery";
 import { VoiceClient, VoiceState } from "@/lib/voice-client";
 import { RobotState, mapBackendEventToRobotState, ROBOT_STATE_CONFIGS } from "@/lib/robot-state-machine";
 import { useAuth } from "@/lib/auth-context";
@@ -54,6 +55,7 @@ export default function CustomerPortal() {
   const [sessionWarning, setSessionWarning] = useState<string | null>(null);
   const [sessionCompletedMessage, setSessionCompletedMessage] = useState<string | null>(null);
   const [siteVisitBooking, setSiteVisitBooking] = useState<any | null>(null);
+  const [activeGallery, setActiveGallery] = useState<PropertyGalleryData | null>(null);
   const [micPermissionGranted, setMicPermissionGranted] = useState<boolean | null>(null);
 
   // Live conversation transcripts
@@ -212,10 +214,22 @@ export default function CustomerPortal() {
         setSiteVisitBooking(booking);
         setRobotState("HAPPY");
       },
+      onPropertyGallery: (galleryData) => {
+        if (galleryData && galleryData.images && galleryData.images.length > 0) {
+          setActiveGallery(galleryData);
+        }
+      },
       onToolStart: (_toolName) => {
         setRobotState("THINKING");
       },
       onToolComplete: (toolName, success, data) => {
+        if ((toolName === "show_property_images" || toolName === "get_property_details") && data) {
+          if (data.images && data.images.length > 0) {
+            setActiveGallery(data);
+          } else if (data.gallery && data.gallery.images && data.gallery.images.length > 0) {
+            setActiveGallery(data.gallery);
+          }
+        }
         const next = mapBackendEventToRobotState("tool_call_complete", {
           tool_name: toolName,
           success,
@@ -905,26 +919,69 @@ export default function CustomerPortal() {
           </div>
         </div>
 
+        {/* Live Synchronized Representative Property Image Gallery */}
+        {activeGallery && (
+          <div className="mt-6 max-w-6xl mx-auto">
+            <PropertyImageGallery gallery={activeGallery} onClose={() => setActiveGallery(null)} />
+          </div>
+        )}
+
         {/* Dynamic Site Visit Booking Confirmation Card */}
         {siteVisitBooking && (
-          <div className="mt-6 max-w-6xl mx-auto bg-emerald-50 border-2 border-emerald-300 rounded-3xl p-6 sm:p-8 shadow-sm">
+          <div className="mt-6 max-w-6xl mx-auto bg-gradient-to-r from-emerald-950/80 to-slate-900 border-2 border-emerald-500/50 rounded-3xl p-6 sm:p-8 shadow-2xl backdrop-blur-xl animate-in fade-in slide-in-from-bottom-3">
             <div className="flex items-start space-x-4">
-              <div className="h-12 w-12 rounded-xl bg-emerald-600 text-white flex items-center justify-center flex-shrink-0">
+              <div className="h-12 w-12 rounded-2xl bg-emerald-500 text-white flex items-center justify-center flex-shrink-0 shadow-lg shadow-emerald-500/30">
                 <CheckCircle2 className="w-7 h-7" />
               </div>
               <div className="flex-1">
-                <h3 className="text-xl font-bold text-emerald-950">Site Visit Confirmed!</h3>
-                <p className="mt-1 text-sm text-emerald-800">
-                  Your physical property visit has been registered in the CRM calendar.
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                    Site Visit Confirmed!
+                    {siteVisitBooking.booking_reference && (
+                      <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        Ref: {siteVisitBooking.booking_reference}
+                      </span>
+                    )}
+                  </h3>
+                  <button
+                    onClick={() => setSiteVisitBooking(null)}
+                    className="text-xs text-slate-400 hover:text-white px-2.5 py-1 rounded-lg hover:bg-slate-800 transition-colors"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+                <p className="mt-1 text-sm text-slate-300">
+                  Your appointment has been registered in our real-time database and assigned to a property advisor.
                 </p>
-                <div className="mt-4 flex flex-wrap gap-4 text-xs font-semibold text-emerald-900 bg-white/70 p-3 rounded-xl border border-emerald-200">
-                  <div className="flex items-center space-x-1.5">
-                    <Calendar className="w-4 h-4 text-emerald-600" />
-                    <span>Visit ID: {String(siteVisitBooking.data?.visit_id || siteVisitBooking.visit_id || "Active").slice(0, 8)}...</span>
+                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs text-slate-200">
+                  <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60">
+                    <span className="text-slate-400 block text-[11px]">Property</span>
+                    <span className="font-bold text-white text-sm">
+                      {siteVisitBooking.property_name || siteVisitBooking.data?.property_name || "Verified Property"}
+                    </span>
+                    {(siteVisitBooking.city || siteVisitBooking.data?.city) && (
+                      <span className="text-slate-400 block text-[11px] mt-0.5">
+                        {siteVisitBooking.city || siteVisitBooking.data?.city}
+                      </span>
+                    )}
                   </div>
-                  <div className="flex items-center space-x-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span>Status: Scheduled</span>
+                  <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60">
+                    <span className="text-slate-400 block text-[11px]">Appointment Date</span>
+                    <span className="font-semibold text-emerald-300 text-sm">
+                      {siteVisitBooking.formatted_date || siteVisitBooking.data?.formatted_date || siteVisitBooking.visit_date || "Confirmed Date"}
+                    </span>
+                  </div>
+                  <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60">
+                    <span className="text-slate-400 block text-[11px]">Time Slot</span>
+                    <span className="font-semibold text-white text-sm">
+                      {siteVisitBooking.visit_time || siteVisitBooking.data?.visit_time || "10:00 AM - 11:00 AM"}
+                    </span>
+                  </div>
+                  <div className="bg-slate-800/80 p-3 rounded-xl border border-slate-700/60">
+                    <span className="text-slate-400 block text-[11px]">Assigned Advisor</span>
+                    <span className="font-medium text-slate-300">
+                      {siteVisitBooking.assigned_agent || siteVisitBooking.data?.assigned_agent || "Senior Property Advisor"}
+                    </span>
                   </div>
                 </div>
               </div>

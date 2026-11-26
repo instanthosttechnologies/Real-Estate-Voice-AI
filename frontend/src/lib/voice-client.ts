@@ -18,6 +18,7 @@ export interface VoiceClientOptions {
   onStateChange?: (state: VoiceState) => void;
   onError?: (error: string) => void;
   onSiteVisitBooked?: (bookingData: any) => void;
+  onPropertyGallery?: (galleryData: any) => void;
   onToolStart?: (toolName: string) => void;
   onToolComplete?: (toolName: string, success: boolean, data: any) => void;
   onSessionWarning?: (message: string, remainingSeconds: number) => void;
@@ -53,6 +54,7 @@ export class VoiceClient {
   private onStateChange?: (state: VoiceState) => void;
   private onError?: (error: string) => void;
   private onSiteVisitBooked?: (bookingData: any) => void;
+  private onPropertyGallery?: (galleryData: any) => void;
   private onToolStart?: (toolName: string) => void;
   private onToolComplete?: (toolName: string, success: boolean, data: any) => void;
   private onSessionWarning?: (message: string, remainingSeconds: number) => void;
@@ -67,6 +69,7 @@ export class VoiceClient {
     this.onStateChange = options.onStateChange;
     this.onError = options.onError;
     this.onSiteVisitBooked = options.onSiteVisitBooked;
+    this.onPropertyGallery = options.onPropertyGallery;
     this.onToolStart = options.onToolStart;
     this.onToolComplete = options.onToolComplete;
     this.onSessionWarning = options.onSessionWarning;
@@ -294,6 +297,14 @@ export class VoiceClient {
         }, 3500);
         break;
 
+      case "show_property_gallery":
+        this.onPropertyGallery?.(msg);
+        break;
+
+      case "site_visit_booked":
+        this.onSiteVisitBooked?.(msg.booking_data || msg);
+        break;
+
       case "tool_call_start":
         this.setState("thinking");
         this.onToolStart?.(msg.tool_name);
@@ -302,7 +313,10 @@ export class VoiceClient {
       case "tool_call_complete":
         this.onToolComplete?.(msg.tool_name, msg.success, msg.data || msg);
         if (msg.tool_name === "book_site_visit" && msg.success) {
-          this.onSiteVisitBooked?.(msg);
+          this.onSiteVisitBooked?.(msg.data || msg);
+        }
+        if (msg.tool_name === "show_property_images" && msg.success && msg.data) {
+          this.onPropertyGallery?.(msg.data);
         }
         break;
 

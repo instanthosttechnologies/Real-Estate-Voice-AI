@@ -243,15 +243,19 @@ class VoiceSessionOrchestrator:
 
         if getattr(settings, "DEMO_DATASET_MODE", False):
             preamble += (
-                "\n\nDEMO MODE & ESTIMATED PRICING GUIDANCE (BrainMagic RealEstate v10):\n"
-                "- You are operating in DEMO MODE with our latest verified portfolio and demo apartments.\n"
-                "- When discussing apartment or configuration prices, always quote the estimated demo range using the format: "
+                "\n\nDEMO MODE & REAL ESTATE VOICE ADVISOR INSTRUCTIONS:\n"
+                "- Active Portfolio: 123 verified projects across 19 cities with 492 representative demo images.\n"
+                "- Multi-Attribute Gathering: Customers often state several preferences at once (e.g., 'Looking for a 3BHK in Gurugram under 2.5 Cr with a gym'). "
+                "Extract all stated criteria immediately. Do NOT ask for details the customer already gave. Only ask for missing items (one brief question at a time).\n"
+                "- Preference Adjustments: If the customer changes their mind ('Actually show me Bangalore instead' or 'Make it 4BHK'), adjust smoothly without losing other criteria.\n"
+                "- Scope & Statistics: If asked 'How many projects do you have?' or 'What cities do you cover?' or 'How many in Gurugram?', call 'get_dataset_summary' and state verified counts.\n"
+                "- Showing Pictures: When the customer asks to see photos or pictures (e.g., 'Show me pictures of Godrej Aristocrat' or 'Can I see photos?'), "
+                "call 'show_property_images'. 4 representative pictures will be presented on their screen.\n"
+                "- Estimated Demo Prices: When discussing prices, use the format: "
                 "'For this demo, the estimated price is around [price range]. The actual selling price may vary.'\n"
-                "- Never invent a price outside the dataset, and never present demo prices as confirmed seller quotations.\n"
-                "- Follow-up Context: When the customer asks follow-up questions about 'this property', 'this 2BHK', 'it', or 'the project', "
-                "refer directly to the property currently under discussion without asking them to repeat the project name.\n"
-                "- Photos: If photos are requested and available, mention them. If photos are unavailable, inform the customer that "
-                "official property photos and brochures are available on the developer's official project portal."
+                "- Live Site Visit Booking: When the customer requests an in-person site visit or tour (e.g., 'Can I visit day after tomorrow at 2 PM?'), "
+                "call 'check_visit_slots' to verify availability and 'book_site_visit' to confirm. State the confirmed property, date, and time slot clearly.\n"
+                "- Spoken Brevity: Speak naturally in 1-2 concise, conversational sentences."
             )
 
         if returning_context:
@@ -644,9 +648,37 @@ class VoiceSessionOrchestrator:
                             "tool_name": tool_req.tool_name,
                             "tool_use_id": tool_req.tool_use_id,
                             "success": tool_resp.success,
+                            "data": tool_resp.data,
                             "anti_hallucination_guidance": tool_resp.anti_hallucination_guidance,
                         })
                     )
+
+                    # Emit dedicated client events for Gallery and Booking
+                    if tool_resp.success and isinstance(tool_resp.data, dict):
+                        if tool_req.tool_name == "show_property_images" or (
+                            tool_req.tool_name == "get_property_details" and tool_resp.data.get("gallery", {}).get("has_images")
+                        ):
+                            gdata = tool_resp.data if tool_req.tool_name == "show_property_images" else tool_resp.data.get("gallery")
+                            await send_text(
+                                json.dumps({
+                                    "type": "show_property_gallery",
+                                    "project_id": gdata.get("project_id"),
+                                    "project_name": gdata.get("project_name"),
+                                    "city": gdata.get("city"),
+                                    "developer_name": gdata.get("developer_name"),
+                                    "images": gdata.get("images", []),
+                                    "image_urls": gdata.get("image_urls", []),
+                                    "disclaimer": gdata.get("disclaimer", "Representative demo images, not official developer photographs"),
+                                    "official_url": gdata.get("official_url"),
+                                })
+                            )
+                        elif tool_req.tool_name == "book_site_visit":
+                            await send_text(
+                                json.dumps({
+                                    "type": "site_visit_booked",
+                                    "booking_data": tool_resp.data,
+                                })
+                            )
 
                     # Stream tool result back to driver
                     await self.driver.send_tool_result(

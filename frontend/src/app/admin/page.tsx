@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { Pagination } from "@/components/Pagination";
 import {
@@ -251,6 +252,17 @@ export default function AdminDashboard() {
               <Database className="w-4 h-4 text-sky-600" />
               <span>AI Knowledge / Dataset Management</span>
             </button>
+
+            <Link
+              href="/admin/calendar"
+              className="py-4 px-1 inline-flex items-center space-x-2 border-b-2 border-transparent text-emerald-600 hover:text-emerald-700 hover:border-emerald-300 font-semibold text-sm transition-colors"
+            >
+              <Calendar className="w-4 h-4 text-emerald-600" />
+              <span>Appointments Calendar</span>
+              <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] bg-emerald-100 text-emerald-800 font-bold">
+                Live
+              </span>
+            </Link>
           </nav>
         </div>
 

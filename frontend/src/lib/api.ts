@@ -822,6 +822,103 @@ export const api = {
       return res.json();
     },
   },
+
+  appointments: {
+    async list(params?: {
+      status?: string;
+      date_from?: string;
+      date_to?: string;
+      city?: string;
+      search?: string;
+      limit?: number;
+      offset?: number;
+    }): Promise<{
+      total: number;
+      items: any[];
+      active_confirmed_count: number;
+      rescheduled_count: number;
+      cancelled_count: number;
+    }> {
+      const q = new URLSearchParams();
+      if (params?.status) q.append("status", params.status);
+      if (params?.date_from) q.append("date_from", params.date_from);
+      if (params?.date_to) q.append("date_to", params.date_to);
+      if (params?.city) q.append("city", params.city);
+      if (params?.search) q.append("search", params.search);
+      if (params?.limit) q.append("limit", params.limit.toString());
+      if (params?.offset) q.append("offset", params.offset.toString());
+      const res = await fetch(`${API_BASE}/appointments?${q.toString()}`);
+      if (!res.ok) throw new Error("Failed to load appointments");
+      return res.json();
+    },
+
+    async getSlots(projectIdentifier: string, targetDate: string): Promise<{
+      project_id: string;
+      property_name: string;
+      visit_date: string;
+      all_slots: string[];
+      available_slots: string[];
+      booked_slots: string[];
+      total_available: number;
+    }> {
+      const q = new URLSearchParams({
+        project_identifier: projectIdentifier,
+        target_date: targetDate,
+      });
+      const res = await fetch(`${API_BASE}/appointments/slots?${q.toString()}`);
+      if (!res.ok) throw new Error("Failed to load slots");
+      return res.json();
+    },
+
+    async create(data: {
+      customer_name: string;
+      contact_number?: string;
+      project_id?: string;
+      property_name: string;
+      city?: string;
+      visit_date: string;
+      visit_time: string;
+      appointment_type?: string;
+      customer_notes?: string;
+      assigned_agent?: string;
+    }): Promise<any> {
+      const res = await fetch(`${API_BASE}/appointments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: "Failed to create appointment" }));
+        throw new Error(err.detail || "Failed to create appointment");
+      }
+      return res.json();
+    },
+
+    async reschedule(
+      id: string,
+      data: { new_visit_date: string; new_visit_time: string; reschedule_reason?: string }
+    ): Promise<any> {
+      const res = await fetch(`${API_BASE}/appointments/${id}/reschedule`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: "Failed to reschedule" }));
+        throw new Error(err.detail || "Failed to reschedule");
+      }
+      return res.json();
+    },
+
+    async cancel(id: string, reason?: string): Promise<any> {
+      const q = reason ? `?reason=${encodeURIComponent(reason)}` : "";
+      const res = await fetch(`${API_BASE}/appointments/${id}${q}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Failed to cancel appointment");
+      return res.json();
+    },
+  },
 };
 
 export async function createLocalTestSession(): Promise<{

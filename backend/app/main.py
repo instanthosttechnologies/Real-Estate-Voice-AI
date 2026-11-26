@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1 import admin, auth, customer, dataset_admin, ingestion, super_owner, voice_ws
+from app.api.v1 import admin, appointments, auth, customer, dataset_admin, ingestion, super_owner, voice_ws
 from app.core.config import settings
 
 app = FastAPI(
@@ -36,6 +36,7 @@ app.include_router(customer.router, prefix=settings.API_V1_STR)
 app.include_router(ingestion.router, prefix=settings.API_V1_STR)
 app.include_router(dataset_admin.router, prefix=settings.API_V1_STR)
 app.include_router(admin.router, prefix=settings.API_V1_STR)
+app.include_router(appointments.router, prefix=settings.API_V1_STR)
 app.include_router(super_owner.router, prefix=settings.API_V1_STR)
 app.include_router(voice_ws.router, prefix=settings.API_V1_STR)
 app.include_router(voice_ws.router)  # Also expose directly at /ws/voice/{session_id}

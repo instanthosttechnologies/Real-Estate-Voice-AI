@@ -43,6 +43,14 @@ export function Navbar() {
         </div>
 
         <div className="flex items-center space-x-4">
+          {(session.role === "admin" || session.role === "super_owner") && (
+            <Link
+              href="/admin/calendar"
+              className="text-xs font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-full transition-colors hidden sm:inline-flex items-center gap-1"
+            >
+              Calendar
+            </Link>
+          )}
           <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border capitalize ${roleBadgeColor}`}>
             {roleLabel}
           </span>

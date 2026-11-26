@@ -20,6 +20,15 @@ TOOL_DESCRIPTIONS: Dict[str, str] = {
         "BHK configuration, budget, ISO currency (e.g. USD, INR), carpet area, and amenities. "
         "Always returns verified database records. Never fabricates properties."
     ),
+    "show_property_images": (
+        "Display 4 representative demo pictures (building facade, entrance/grounds, living area, master bedroom) "
+        "of a specific property or project on the customer's screen. Enforces demo disclaimer."
+    ),
+    "get_dataset_summary": (
+        "Retrieve dynamic, verified real estate portfolio counts and statistics. "
+        "Returns total actual projects (123), total unique cities (19), representative image count (492), "
+        "or specific project counts and top developers for a requested city (e.g. Gurugram, Bengaluru, Mumbai, Pune)."
+    ),
     "get_property_details": (
         "Retrieve verified specifications and current pricing for a specific property unit by its unit UUID. "
         "Optionally retrieves historical pricing records."

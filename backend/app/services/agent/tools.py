@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
@@ -9,6 +9,7 @@ from app.models.lead import Lead
 from app.models.customer import Customer
 from app.models.pricing import Pricing
 from app.models.audit_log import AuditLog
+from app.models.appointment import Appointment
 from app.schemas.agent_tools import (
     AgentToolResponse,
     BookSiteVisitToolInput,
@@ -22,6 +23,8 @@ from app.schemas.agent_tools import (
     GetPropertyPriceToolInput,
     RescheduleSiteVisitToolInput,
     SearchPropertiesToolInput,
+    ShowPropertyImagesToolInput,
+    GetDatasetSummaryToolInput,
     QueryActiveDatasetToolInput,
     QueryBusinessDatasetToolInput,
     TransferToHumanToolInput,
@@ -549,63 +552,278 @@ def tool_calculate_lead_priority(db: Session, args: CalculateLeadPriorityToolInp
     )
 
 
+STANDARD_VISIT_SLOTS = [
+    "10:00 AM - 11:00 AM",
+    "11:30 AM - 12:30 PM",
+    "02:00 PM - 03:00 PM",
+    "03:30 PM - 04:30 PM",
+    "05:00 PM - 06:00 PM",
+]
+
+
+def _parse_visit_date(date_val: Any) -> date:
+    """Parses relative ('today', 'tomorrow', 'day after tomorrow', 'Saturday') or formatted date string."""
+    now_ist = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+    base_date = now_ist.date()
+    if not date_val:
+        return base_date + timedelta(days=1)
+
+    if isinstance(date_val, date) and not isinstance(date_val, datetime):
+        return date_val
+    if isinstance(date_val, datetime):
+        return date_val.date()
+
+    raw = str(date_val).strip().lower()
+    if "today" in raw:
+        return base_date
+    if "day after tomorrow" in raw or "day after" in raw:
+        return base_date + timedelta(days=2)
+    if "tomorrow" in raw:
+        return base_date + timedelta(days=1)
+
+    weekdays = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+    for idx, wname in enumerate(weekdays):
+        if wname in raw:
+            current_wd = base_date.weekday()
+            days_ahead = (idx - current_wd) % 7
+            if days_ahead == 0:
+                days_ahead = 7
+            return base_date + timedelta(days=days_ahead)
+
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%Y/%m/%d", "%d %b %Y", "%d %B %Y"):
+        try:
+            return datetime.strptime(raw, fmt).date()
+        except ValueError:
+            pass
+
+    m = re.search(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})", raw)
+    if m:
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+
+    return base_date + timedelta(days=1)
+
+
+def _format_time_slot(raw_time: Optional[str]) -> str:
+    """Normalizes colloquial spoken time strings ('2pm', '11am', 'morning') to standard slots."""
+    if not raw_time:
+        return "11:30 AM - 12:30 PM"
+    s = str(raw_time).strip().lower()
+    if "10" in s or "ten" in s or "morning" in s and "11" not in s:
+        return "10:00 AM - 11:00 AM"
+    if "11" in s or "eleven" in s or "noon" in s:
+        return "11:30 AM - 12:30 PM"
+    if "2" in s or "two" in s or "afternoon" in s and "3" not in s and "4" not in s:
+        return "02:00 PM - 03:00 PM"
+    if "3" in s or "three" in s or "4" in s or "four" in s:
+        return "03:30 PM - 04:30 PM"
+    if "5" in s or "five" in s or "6" in s or "six" in s or "evening" in s:
+        return "05:00 PM - 06:00 PM"
+    return str(raw_time).strip()
+
+
 def tool_check_visit_slots(db: Session, args: CheckVisitSlotsToolInput) -> AgentToolResponse:
-    try:
-        slots_resp = get_available_visit_slots(
-            db=db,
-            project_id=args.project_id,
-            target_date=args.target_date
+    target_date = _parse_visit_date(args.visit_date or args.target_date)
+    demo_svc = DemoDatasetService.get_instance()
+
+    # Resolve project name and id
+    ident = str(args.project_identifier or args.project_id or "").strip()
+    proj_details = demo_svc.get_property_details(ident) if ident else None
+
+    proj_id = proj_details["project_id"] if proj_details else ident
+    proj_name = proj_details["project_name"] if proj_details else ident or "Selected Property"
+
+    # Query existing booked appointments for this project & date
+    existing_query = select(Appointment.visit_time).where(
+        (Appointment.project_id == proj_id) | (Appointment.property_name.ilike(f"%{proj_name}%")),
+        Appointment.visit_date == target_date,
+        Appointment.booking_status == "confirmed"
+    )
+    booked_slots = set(db.scalars(existing_query).all())
+
+    available_slots = [s for s in STANDARD_VISIT_SLOTS if s not in booked_slots]
+
+    date_str = target_date.strftime("%A, %d %B %Y")
+    if available_slots:
+        voice_text = (
+            f"For {proj_name} on {date_str}, we have available visiting slots at "
+            f"{', '.join(available_slots[:3])}. Would any of those times work for you?"
         )
-        available_only = [s.model_dump() for s in slots_resp.slots if s.is_available]
-        return AgentToolResponse(
-            tool_name="check_visit_slots",
-            success=True,
-            data={
-                "project_id": str(args.project_id),
-                "target_date": args.target_date.isoformat(),
-                "available_slots": available_only,
-                "total_available_slots": len(available_only),
-            },
-            anti_hallucination_guidance="Offer only the time slots listed in 'available_slots'. Do not offer time slots outside operating hours (9 AM - 6 PM)."
+    else:
+        voice_text = (
+            f"All standard visit slots for {proj_name} on {date_str} are fully booked. "
+            f"Would you prefer to check the following day?"
         )
-    except ValueError as exc:
-        return AgentToolResponse(
-            tool_name="check_visit_slots",
-            success=False,
-            error_message=str(exc)
-        )
+
+    return AgentToolResponse(
+        tool_name="check_visit_slots",
+        success=True,
+        data={
+            "project_id": proj_id,
+            "property_name": proj_name,
+            "target_date": target_date.isoformat(),
+            "formatted_date": date_str,
+            "available_slots": available_slots,
+            "booked_slots": list(booked_slots),
+            "total_available_slots": len(available_slots),
+            "voice_summary": voice_text,
+        },
+        anti_hallucination_guidance="Offer only the time slots listed in 'available_slots'. Do not invent other timings.",
+    )
 
 
 def tool_book_site_visit(db: Session, args: BookSiteVisitToolInput) -> AgentToolResponse:
-    try:
-        book_input = BookVisitInput(
-            customer_id=args.customer_id,
-            project_id=args.project_id,
-            unit_id=args.unit_id,
-            scheduled_start=args.scheduled_start,
-            scheduled_end=args.scheduled_end,
-            assigned_agent_name=args.assigned_agent_name,
-            customer_notes=args.customer_notes,
-        )
-        visit_resp = book_site_visit(db, book_input)
-        from app.core.config import settings
-        guidance = (
-            "Dry-run test mode is active: clearly inform the customer that this appointment is provisionally scheduled for testing purposes and is not permanently confirmed in production."
-            if getattr(settings, "DRY_RUN_TEST_MODE", False)
-            else "Confirm the appointment with the customer using the exact date, time, and project name in the response."
-        )
-        return AgentToolResponse(
-            tool_name="book_site_visit",
-            success=True,
-            data=visit_resp.model_dump(),
-            anti_hallucination_guidance=guidance
-        )
-    except ValueError as exc:
+    demo_svc = DemoDatasetService.get_instance()
+
+    # 1. Resolve project
+    ident = str(args.property_name or args.project_identifier or args.project_id or "").strip()
+    proj_details = demo_svc.get_property_details(ident) if ident else None
+
+    if proj_details:
+        proj_id = proj_details["project_id"]
+        proj_name = proj_details["project_name"]
+        city = proj_details.get("city", "Primary Location")
+    elif ident:
+        proj_id = ident
+        proj_name = ident
+        city = "Primary Location"
+    else:
+        proj_id = "PROJ_GENERAL"
+        proj_name = "Property Site Visit"
+        city = "Primary Location"
+
+    # 2. Resolve date and time slot
+    resolved_date = _parse_visit_date(args.visit_date or args.scheduled_start)
+    raw_time = args.visit_time
+    if not raw_time and args.scheduled_start:
+        if isinstance(args.scheduled_start, datetime):
+            raw_time = args.scheduled_start.strftime("%I:%M %p")
+        else:
+            raw_time = str(args.scheduled_start)
+    formatted_time = _format_time_slot(raw_time)
+
+    # 3. Double-Booking Prevention: Check if already booked for same project, date, and slot
+    conflict_query = select(Appointment).where(
+        (Appointment.project_id == proj_id) | (Appointment.property_name.ilike(f"%{proj_name}%")),
+        Appointment.visit_date == resolved_date,
+        Appointment.visit_time == formatted_time,
+        Appointment.booking_status == "confirmed"
+    )
+    conflict = db.scalars(conflict_query).first()
+    if conflict:
+        # Find next available slot
+        existing_booked = set(db.scalars(
+            select(Appointment.visit_time).where(
+                (Appointment.project_id == proj_id) | (Appointment.property_name.ilike(f"%{proj_name}%")),
+                Appointment.visit_date == resolved_date,
+                Appointment.booking_status == "confirmed"
+            )
+        ).all())
+        alts = [s for s in STANDARD_VISIT_SLOTS if s not in existing_booked]
+        alt_msg = f"Available alternative slots are: {', '.join(alts)}." if alts else "Please choose another date."
         return AgentToolResponse(
             tool_name="book_site_visit",
             success=False,
-            error_message=str(exc)
+            error_message=(
+                f"The time slot '{formatted_time}' on {resolved_date} for {proj_name} is already reserved. {alt_msg}"
+            ),
+            anti_hallucination_guidance="Inform the customer of the scheduling conflict and offer one of the alternative available slots.",
         )
+
+    # 4. Create and persist Appointment in development PostgreSQL database
+    customer_name = (args.customer_name or "").strip() or "Valued Customer"
+    contact_number = (args.contact_number or "").strip() or "Not Provided"
+
+    new_appt = Appointment(
+        id=uuid.uuid4(),
+        customer_name=customer_name,
+        contact_number=contact_number,
+        project_id=proj_id,
+        property_name=proj_name,
+        city=city,
+        visit_date=resolved_date,
+        visit_time=formatted_time,
+        timezone="Asia/Kolkata",
+        appointment_type=args.appointment_type or "In-Person Site Visit",
+        booking_status="confirmed",
+        booking_source="AI Voice",
+        customer_notes=args.customer_notes or "Booked via live voice conversation.",
+        assigned_agent=args.assigned_agent_name or "Senior Property Advisor",
+    )
+    db.add(new_appt)
+    db.commit()
+    db.refresh(new_appt)
+
+    date_formatted = resolved_date.strftime("%A, %d %B %Y")
+    spoken_confirmation = (
+        f"Your visit to {proj_name} in {city} is confirmed for {date_formatted} at {formatted_time}. "
+        f"A confirmation has been saved and our senior advisor will be ready to welcome you."
+    )
+
+    return AgentToolResponse(
+        tool_name="book_site_visit",
+        success=True,
+        data={
+            "appointment_id": str(new_appt.id),
+            "booking_reference": f"BM-{str(new_appt.id)[:8].upper()}",
+            "customer_name": customer_name,
+            "contact_number": contact_number,
+            "project_id": proj_id,
+            "property_name": proj_name,
+            "city": city,
+            "visit_date": resolved_date.isoformat(),
+            "formatted_date": date_formatted,
+            "visit_time": formatted_time,
+            "appointment_type": new_appt.appointment_type,
+            "booking_status": new_appt.booking_status,
+            "booking_source": new_appt.booking_source,
+            "assigned_agent": new_appt.assigned_agent,
+            "spoken_confirmation": spoken_confirmation,
+        },
+        anti_hallucination_guidance="Confirm the appointment with the customer using the exact project name, date, and time.",
+    )
+
+
+def tool_show_property_images(db: Session, args: ShowPropertyImagesToolInput) -> AgentToolResponse:
+    demo_svc = DemoDatasetService.get_instance()
+    ident = str(args.project_name or args.project_id or "").strip()
+    if not ident:
+        return AgentToolResponse(
+            tool_name="show_property_images",
+            success=False,
+            error_message="Please specify a project name to display pictures.",
+        )
+
+    res = demo_svc.get_property_images(ident)
+    if not res.get("success"):
+        return AgentToolResponse(
+            tool_name="show_property_images",
+            success=False,
+            error_message=res.get("message") or f"No photos found for {ident}",
+        )
+
+    return AgentToolResponse(
+        tool_name="show_property_images",
+        success=True,
+        data=res,
+        anti_hallucination_guidance=(
+            "State clearly that 4 representative pictures of the property facade, grounds, and living areas "
+            "have been displayed on screen. Always remind the customer that these are representative demo pictures."
+        ),
+    )
+
+
+def tool_get_dataset_summary(db: Session, args: GetDatasetSummaryToolInput) -> AgentToolResponse:
+    demo_svc = DemoDatasetService.get_instance()
+    res = demo_svc.get_dataset_summary(city_filter=args.city)
+    return AgentToolResponse(
+        tool_name="get_dataset_summary",
+        success=res.get("success", True),
+        data=res,
+        anti_hallucination_guidance=(
+            "Answer strictly using the counts and voice_summary in the data. "
+            "Never invent cities or project numbers outside the active dataset."
+        ),
+    )
 
 
 def tool_reschedule_site_visit(db: Session, args: RescheduleSiteVisitToolInput) -> AgentToolResponse:

@@ -9,6 +9,7 @@ from app.models.availability import Availability
 from app.models.customer import Customer
 from app.models.lead import Lead
 from app.models.site_visit import SiteVisit
+from app.models.appointment import Appointment
 from app.models.conversation import Conversation
 from app.models.audit_log import AuditLog
 from app.models.refresh_token import RefreshToken
@@ -30,6 +31,7 @@ __all__ = [
     "Customer",
     "Lead",
     "SiteVisit",
+    "Appointment",
     "Conversation",
     "AuditLog",
     "RefreshToken",

@@ -21,6 +21,8 @@ from app.schemas.agent_tools import (
     CalculateLeadPriorityToolInput,
     QueryActiveDatasetToolInput,
     QueryBusinessDatasetToolInput,
+    ShowPropertyImagesToolInput,
+    GetDatasetSummaryToolInput,
 )
 from app.services.agent import tools
 
@@ -29,6 +31,8 @@ logger = logging.getLogger("agent_dispatcher")
 # Registry: tool_name -> (Schema, Function)
 AGENT_TOOL_REGISTRY: Dict[str, Tuple[Type[BaseModel], Callable[[Session, Any], AgentToolResponse]]] = {
     "search_properties": (SearchPropertiesToolInput, tools.tool_search_properties),
+    "show_property_images": (ShowPropertyImagesToolInput, tools.tool_show_property_images),
+    "get_dataset_summary": (GetDatasetSummaryToolInput, tools.tool_get_dataset_summary),
     "query_active_dataset": (QueryActiveDatasetToolInput, tools.tool_query_active_dataset),
     "query_business_dataset": (QueryBusinessDatasetToolInput, tools.tool_query_business_dataset),
     "get_property_details": (GetPropertyDetailsToolInput, tools.tool_get_property_details),
