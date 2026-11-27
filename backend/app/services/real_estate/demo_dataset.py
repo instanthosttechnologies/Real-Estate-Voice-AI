@@ -92,13 +92,25 @@ class DemoDatasetService:
             logger.error(f"[DemoDataset] Failed to load workbook: {e}")
             return
 
-        # 1. Sheet: Property_Knowledge
+        # Reset in-memory indexes
         self.all_projects.clear()
         self.projects.clear()
         self.project_name_index.clear()
-        if "Property_Knowledge" in wb.sheetnames:
-            sheet = wb["Property_Knowledge"]
+        self.all_configurations.clear()
+        self.configurations.clear()
+        self.project_configurations.clear()
+        self.faqs.clear()
+        self.project_faqs.clear()
+        self.demo_apartments.clear()
+        self.project_demo_apartments.clear()
+
+        # Primary: Single Worksheet 'RealEstate_Master'
+        if "RealEstate_Master" in wb.sheetnames:
+            logger.info("[DemoDataset] Reading single consolidated worksheet 'RealEstate_Master'...")
+            sheet = wb["RealEstate_Master"]
             headers = [cell.value for cell in next(sheet.iter_rows(max_row=1))]
+            seen_faq_ids = set()
+
             for row in sheet.iter_rows(min_row=2, values_only=True):
                 if not any(row):
                     continue
@@ -111,77 +123,160 @@ class DemoDatasetService:
 
                 # Filter duplicate aliases or portfolio summaries from saleable properties
                 record_type = str(record.get("Record_Type") or "").strip().lower()
-                if "duplicate" in record_type or "portfolio_summary" in record_type:
-                    continue
+                if not ("duplicate" in record_type or "portfolio_summary" in record_type):
+                    self.projects[proj_id] = record
+                    proj_name = str(record.get("Project_Name") or "").strip()
+                    if proj_name:
+                        self.project_name_index[proj_name.lower()] = proj_id
 
-                self.projects[proj_id] = record
-                proj_name = str(record.get("Project_Name") or "").strip()
-                if proj_name:
-                    self.project_name_index[proj_name.lower()] = proj_id
+                # Unpack Configurations_JSON
+                cfgs_raw = record.get("Configurations_JSON")
+                if cfgs_raw:
+                    try:
+                        cfgs = json.loads(cfgs_raw) if isinstance(cfgs_raw, str) else cfgs_raw
+                        for cfg in cfgs:
+                            cfg_id = str(cfg.get("Configuration_ID") or "").strip()
+                            if not cfg_id:
+                                continue
+                            self.all_configurations[cfg_id] = cfg
+                            cfg_rec_type = str(cfg.get("Record_Type") or "").strip().lower()
+                            if "duplicate" in cfg_rec_type or "portfolio_summary" in cfg_rec_type:
+                                continue
+                            self.configurations[cfg_id] = cfg
+                            self.project_configurations.setdefault(proj_id, []).append(cfg)
+                    except Exception as e:
+                        logger.warning(f"[DemoDataset] Error unpacking Configurations_JSON for {proj_id}: {e}")
 
-        # 2. Sheet: Property_Configurations
-        self.all_configurations.clear()
-        self.configurations.clear()
-        self.project_configurations.clear()
-        if "Property_Configurations" in wb.sheetnames:
-            sheet = wb["Property_Configurations"]
-            headers = [cell.value for cell in next(sheet.iter_rows(max_row=1))]
-            for row in sheet.iter_rows(min_row=2, values_only=True):
-                if not any(row):
-                    continue
-                record = dict(zip(headers, row))
-                cfg_id = str(record.get("Configuration_ID") or "").strip()
-                proj_id = str(record.get("Project_ID") or "").strip()
-                if not cfg_id:
-                    continue
+                # Unpack Demo_Apartments_JSON (handles single column or Part1 + Part2 chunking)
+                demos_raw = record.get("Demo_Apartments_JSON_Part1") or record.get("Demo_Apartments_JSON")
+                if demos_raw:
+                    try:
+                        part2 = str(record.get("Demo_Apartments_JSON_Part2") or "")
+                        demos_str = str(demos_raw) + part2
+                        demos = json.loads(demos_str) if isinstance(demos_str, str) else demos_raw
+                        for apt in demos:
+                            apt_id = str(apt.get("Demo_Apartment_ID") or "").strip()
+                            if not apt_id:
+                                continue
+                            self.demo_apartments[apt_id] = apt
+                            self.project_demo_apartments.setdefault(proj_id, []).append(apt)
+                    except Exception as e:
+                        logger.warning(f"[DemoDataset] Error unpacking Demo_Apartments_JSON for {proj_id}: {e}")
 
-                self.all_configurations[cfg_id] = record
+                # Unpack Project_FAQs_JSON
+                faqs_raw = record.get("Project_FAQs_JSON")
+                if faqs_raw:
+                    try:
+                        pfaqs = json.loads(faqs_raw) if isinstance(faqs_raw, str) else faqs_raw
+                        for faq in pfaqs:
+                            faq_id = str(faq.get("FAQ_ID") or "").strip()
+                            if not faq_id or faq_id in seen_faq_ids:
+                                continue
+                            seen_faq_ids.add(faq_id)
+                            self.faqs.append(faq)
+                            self.project_faqs.setdefault(proj_id, []).append(faq)
+                    except Exception as e:
+                        logger.warning(f"[DemoDataset] Error unpacking Project_FAQs_JSON for {proj_id}: {e}")
 
-                # Filter duplicate or portfolio summaries
-                record_type = str(record.get("Record_Type") or "").strip().lower()
-                if "duplicate" in record_type or "portfolio_summary" in record_type:
-                    continue
+                # Unpack Global_RealEstate_FAQs_JSON (once across all rows, handles Part1 + Part2 chunking)
+                global_faqs_raw = record.get("Global_RealEstate_FAQs_Part1_JSON") or record.get("Global_RealEstate_FAQs_JSON")
+                if global_faqs_raw:
+                    try:
+                        part2 = str(record.get("Global_RealEstate_FAQs_Part2_JSON") or "")
+                        gfaqs_str = str(global_faqs_raw) + part2
+                        gfaqs = json.loads(gfaqs_str) if isinstance(gfaqs_str, str) else global_faqs_raw
+                        for faq in gfaqs:
+                            faq_id = str(faq.get("FAQ_ID") or "").strip()
+                            if not faq_id or faq_id in seen_faq_ids:
+                                continue
+                            seen_faq_ids.add(faq_id)
+                            self.faqs.append(faq)
+                    except Exception as e:
+                        logger.warning(f"[DemoDataset] Error unpacking Global_RealEstate_FAQs_JSON: {e}")
 
-                self.configurations[cfg_id] = record
-                if proj_id:
-                    self.project_configurations.setdefault(proj_id, []).append(record)
+        else:
+            # Fallback: Legacy Four Worksheets
+            logger.info("[DemoDataset] Reading legacy 4-sheet workbook...")
+            # 1. Sheet: Property_Knowledge
+            if "Property_Knowledge" in wb.sheetnames:
+                sheet = wb["Property_Knowledge"]
+                headers = [cell.value for cell in next(sheet.iter_rows(max_row=1))]
+                for row in sheet.iter_rows(min_row=2, values_only=True):
+                    if not any(row):
+                        continue
+                    record = dict(zip(headers, row))
+                    proj_id = str(record.get("Project_ID") or "").strip()
+                    if not proj_id:
+                        continue
 
-        # 3. Sheet: RealEstate_FAQs
-        self.faqs.clear()
-        self.project_faqs.clear()
-        if "RealEstate_FAQs" in wb.sheetnames:
-            sheet = wb["RealEstate_FAQs"]
-            headers = [cell.value for cell in next(sheet.iter_rows(max_row=1))]
-            for row in sheet.iter_rows(min_row=2, values_only=True):
-                if not any(row):
-                    continue
-                record = dict(zip(headers, row))
-                faq_id = str(record.get("FAQ_ID") or "").strip()
-                if not faq_id:
-                    continue
-                self.faqs.append(record)
-                proj_id = str(record.get("Project_ID") or "").strip()
-                if proj_id:
-                    self.project_faqs.setdefault(proj_id, []).append(record)
+                    self.all_projects[proj_id] = record
 
-        # 4. Sheet: Demo_Apartments
-        self.demo_apartments.clear()
-        self.project_demo_apartments.clear()
-        if "Demo_Apartments" in wb.sheetnames:
-            sheet = wb["Demo_Apartments"]
-            headers = [cell.value for cell in next(sheet.iter_rows(max_row=1))]
-            for row in sheet.iter_rows(min_row=2, values_only=True):
-                if not any(row):
-                    continue
-                record = dict(zip(headers, row))
-                apt_id = str(record.get("Demo_Apartment_ID") or "").strip()
-                proj_id = str(record.get("Project_ID") or "").strip()
-                if not apt_id:
-                    continue
+                    # Filter duplicate aliases or portfolio summaries from saleable properties
+                    record_type = str(record.get("Record_Type") or "").strip().lower()
+                    if "duplicate" in record_type or "portfolio_summary" in record_type:
+                        continue
 
-                self.demo_apartments[apt_id] = record
-                if proj_id:
-                    self.project_demo_apartments.setdefault(proj_id, []).append(record)
+                    self.projects[proj_id] = record
+                    proj_name = str(record.get("Project_Name") or "").strip()
+                    if proj_name:
+                        self.project_name_index[proj_name.lower()] = proj_id
+
+            # 2. Sheet: Property_Configurations
+            if "Property_Configurations" in wb.sheetnames:
+                sheet = wb["Property_Configurations"]
+                headers = [cell.value for cell in next(sheet.iter_rows(max_row=1))]
+                for row in sheet.iter_rows(min_row=2, values_only=True):
+                    if not any(row):
+                        continue
+                    record = dict(zip(headers, row))
+                    cfg_id = str(record.get("Configuration_ID") or "").strip()
+                    proj_id = str(record.get("Project_ID") or "").strip()
+                    if not cfg_id:
+                        continue
+
+                    self.all_configurations[cfg_id] = record
+
+                    # Filter duplicate or portfolio summaries
+                    record_type = str(record.get("Record_Type") or "").strip().lower()
+                    if "duplicate" in record_type or "portfolio_summary" in record_type:
+                        continue
+
+                    self.configurations[cfg_id] = record
+                    if proj_id:
+                        self.project_configurations.setdefault(proj_id, []).append(record)
+
+            # 3. Sheet: RealEstate_FAQs
+            if "RealEstate_FAQs" in wb.sheetnames:
+                sheet = wb["RealEstate_FAQs"]
+                headers = [cell.value for cell in next(sheet.iter_rows(max_row=1))]
+                for row in sheet.iter_rows(min_row=2, values_only=True):
+                    if not any(row):
+                        continue
+                    record = dict(zip(headers, row))
+                    faq_id = str(record.get("FAQ_ID") or "").strip()
+                    if not faq_id:
+                        continue
+                    self.faqs.append(record)
+                    proj_id = str(record.get("Project_ID") or "").strip()
+                    if proj_id:
+                        self.project_faqs.setdefault(proj_id, []).append(record)
+
+            # 4. Sheet: Demo_Apartments
+            if "Demo_Apartments" in wb.sheetnames:
+                sheet = wb["Demo_Apartments"]
+                headers = [cell.value for cell in next(sheet.iter_rows(max_row=1))]
+                for row in sheet.iter_rows(min_row=2, values_only=True):
+                    if not any(row):
+                        continue
+                    record = dict(zip(headers, row))
+                    apt_id = str(record.get("Demo_Apartment_ID") or "").strip()
+                    proj_id = str(record.get("Project_ID") or "").strip()
+                    if not apt_id:
+                        continue
+
+                    self.demo_apartments[apt_id] = record
+                    if proj_id:
+                        self.project_demo_apartments.setdefault(proj_id, []).append(record)
 
         self.is_loaded = True
         logger.info(
