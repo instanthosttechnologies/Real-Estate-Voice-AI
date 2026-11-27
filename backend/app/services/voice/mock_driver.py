@@ -134,9 +134,9 @@ class MockVoiceDriver(VoiceDriver):
         # 2. Emit initial conversational greeting from voice assistant
         display_name = customer_name.strip() if customer_name else None
         if display_name:
-            greeting = f"Hello {display_name}! Welcome to BrainMagic Real Estate. I'm your AI property assistant. Are you looking to buy or rent a property?"
+            greeting = f"Hello {display_name}! Welcome to BrainMagic Real Estate. Hi {display_name}! Welcome to Brain Magic RealEstate Voice AI. I'm your AI property assistant. Are you looking to buy or rent a property?"
         else:
-            greeting = "Hello! Welcome to BrainMagic Real Estate. I'm your AI property assistant. Are you looking to buy or rent a property?"
+            greeting = "Hello! Welcome to BrainMagic Real Estate. Welcome to Brain Magic RealEstate Voice AI. I'm your AI property assistant. Are you looking to buy or rent a property?"
         await queue.put(
             VoiceServerEvent(
                 event_type=VoiceEventType.TRANSCRIPT_DELTA,

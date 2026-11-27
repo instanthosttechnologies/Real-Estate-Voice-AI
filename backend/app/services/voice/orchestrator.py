@@ -38,14 +38,23 @@ class DryRunSessionProxy:
     Upon session completion or rollback, all in-memory changes are discarded.
     """
 
-    def __init__(self, session: Session):
+    def __init__(self, session: Optional[Session]):
         self._session = session
 
     def commit(self) -> None:
-        logger.info("[DRY_RUN_TEST_MODE] Intercepted db.commit() -> executing db.flush() instead (no persistent write).")
-        self._session.flush()
+        if self._session is not None:
+            logger.info("[DRY_RUN_TEST_MODE] Intercepted db.commit() -> executing db.flush() instead (no persistent write).")
+            self._session.flush()
 
     def __getattr__(self, name: str) -> Any:
+        if self._session is None:
+            if name == "execute":
+                mock_res = type("MockResult", (), {
+                    "scalar_one_or_none": lambda s: None,
+                    "scalars": lambda s: type("MockScalars", (), {"all": lambda s2: [], "first": lambda s2: None})()
+                })()
+                return lambda *args, **kwargs: mock_res
+            return lambda *args, **kwargs: None
         return getattr(self._session, name)
 
 
@@ -306,7 +315,7 @@ class VoiceSessionOrchestrator:
             "STREAM CONTINUATION CONTEXT (DO NOT RE-GREET THE CUSTOMER):\n"
             "You are seamlessly continuing an active, ongoing conversation with the customer.\n"
             "CRITICAL INSTRUCTIONS FOR THIS CONTINUATION:\n"
-            "1. DO NOT greet the customer again (never say 'Hello', 'Hi', 'Good morning', or repeat introductory greetings).\n"
+            "1. DO NOT greet the customer again and DO NOT repeat the initial greeting (never say 'Hello', 'Hi', 'Good morning', or repeat introductory greetings).\n"
             "2. Seamlessly pick up from where the customer left off without any interruption or reset.\n"
             "3. Established customer requirements so far:\n"
             f"{pref_section}\n"
@@ -650,7 +659,7 @@ class VoiceSessionOrchestrator:
                             "success": tool_resp.success,
                             "data": tool_resp.data,
                             "anti_hallucination_guidance": tool_resp.anti_hallucination_guidance,
-                        })
+                        }, default=str)
                     )
 
                     # Emit dedicated client events for Gallery and Booking
@@ -670,14 +679,14 @@ class VoiceSessionOrchestrator:
                                     "image_urls": gdata.get("image_urls", []),
                                     "disclaimer": gdata.get("disclaimer", "Representative demo images, not official developer photographs"),
                                     "official_url": gdata.get("official_url"),
-                                })
+                                }, default=str)
                             )
                         elif tool_req.tool_name == "book_site_visit":
                             await send_text(
                                 json.dumps({
                                     "type": "site_visit_booked",
                                     "booking_data": tool_resp.data,
-                                })
+                                }, default=str)
                             )
 
                     # Stream tool result back to driver

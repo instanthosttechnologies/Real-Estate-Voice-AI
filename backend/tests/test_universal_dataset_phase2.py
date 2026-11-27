@@ -1,7 +1,7 @@
+import csv
 import io
 import uuid
 import pytest
-import pandas as pd
 from datetime import datetime, timezone
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -42,10 +42,13 @@ def db_session():
 
 
 def create_csv_bytes(data: list[dict]) -> bytes:
-    df = pd.DataFrame(data)
-    out = io.BytesIO()
-    df.to_csv(out, index=False)
-    return out.getvalue()
+    if not data:
+        return b""
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=list(data[0].keys()))
+    writer.writeheader()
+    writer.writerows(data)
+    return out.getvalue().encode("utf-8")
 
 
 # ---------------------------------------------------------------------------

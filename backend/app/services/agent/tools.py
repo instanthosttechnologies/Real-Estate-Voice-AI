@@ -10,6 +10,9 @@ from app.models.customer import Customer
 from app.models.pricing import Pricing
 from app.models.audit_log import AuditLog
 from app.models.appointment import Appointment
+from app.models.property import PropertyUnit, Property
+from app.models.project import Project
+from app.models.site_visit import SiteVisit
 from app.schemas.agent_tools import (
     AgentToolResponse,
     BookSiteVisitToolInput,
@@ -88,8 +91,15 @@ def tool_search_properties(db: Session, args: SearchPropertiesToolInput) -> Agen
                     ),
                 )
 
-    # 2. Check if DEMO_DATASET_MODE is active
-    if getattr(settings, "DEMO_DATASET_MODE", False):
+    has_db_units = False
+    if db is not None:
+        try:
+            has_db_units = db.execute(select(PropertyUnit).limit(1)).scalar_one_or_none() is not None
+        except Exception:
+            pass
+
+    # 2. Check if DEMO_DATASET_MODE is active (when authentic PropertyUnits are not populated)
+    if not has_db_units and getattr(settings, "DEMO_DATASET_MODE", False):
         demo_svc = DemoDatasetService.get_instance()
         bhk_val = None
         if args.configuration_type:
@@ -626,11 +636,46 @@ def tool_check_visit_slots(db: Session, args: CheckVisitSlotsToolInput) -> Agent
     demo_svc = DemoDatasetService.get_instance()
 
     # Resolve project name and id
-    ident = str(args.project_identifier or args.project_id or "").strip()
+    ident = str(args.project_identifier or getattr(args, "property_name", None) or args.project_id or "").strip()
     proj_details = demo_svc.get_property_details(ident) if ident else None
 
-    proj_id = proj_details["project_id"] if proj_details else ident
-    proj_name = proj_details["project_name"] if proj_details else ident or "Selected Property"
+    # Check if authentic DB projects exist
+    db_project = None
+    if db is not None and ident:
+        try:
+            val_uuid = uuid.UUID(ident)
+            db_project = db.execute(select(Project).where(Project.id == val_uuid)).scalar_one_or_none()
+        except (ValueError, TypeError):
+            pass
+        if not db_project:
+            try:
+                db_project = db.execute(select(Project).where(Project.name.ilike(f"%{ident}%"))).scalar_one_or_none()
+            except Exception:
+                pass
+
+    if not proj_details and not db_project:
+        has_projects = False
+        if db is not None:
+            try:
+                has_projects = db.execute(select(Project).limit(1)).scalar_one_or_none() is not None
+            except Exception:
+                pass
+        if has_projects:
+            return AgentToolResponse(
+                tool_name="check_visit_slots",
+                success=False,
+                error_message=f"Project with ID or name '{ident}' was not found in active listings.",
+            )
+
+    if db_project:
+        proj_id = str(db_project.id)
+        proj_name = db_project.name
+    elif proj_details:
+        proj_id = proj_details["project_id"]
+        proj_name = proj_details["project_name"]
+    else:
+        proj_id = ident
+        proj_name = ident or "Selected Property"
 
     # Query existing booked appointments for this project & date
     existing_query = select(Appointment.visit_time).where(
@@ -675,7 +720,7 @@ def tool_book_site_visit(db: Session, args: BookSiteVisitToolInput) -> AgentTool
     demo_svc = DemoDatasetService.get_instance()
 
     # 1. Resolve project
-    ident = str(args.property_name or args.project_identifier or args.project_id or "").strip()
+    ident = str(args.property_name or getattr(args, "project_identifier", None) or args.project_id or "").strip()
     proj_details = demo_svc.get_property_details(ident) if ident else None
 
     if proj_details:
@@ -697,8 +742,26 @@ def tool_book_site_visit(db: Session, args: BookSiteVisitToolInput) -> AgentTool
     if not raw_time and args.scheduled_start:
         if isinstance(args.scheduled_start, datetime):
             raw_time = args.scheduled_start.strftime("%I:%M %p")
+            if args.scheduled_start.hour < 9 or args.scheduled_start.hour >= 18:
+                return AgentToolResponse(
+                    tool_name="book_site_visit",
+                    success=False,
+                    error_message=f"Requested time {args.scheduled_start.strftime('%I:%M %p')} is outside standard project operating hours (09:00 AM to 06:00 PM).",
+                    anti_hallucination_guidance="Site visits can only be booked during operating hours between 09:00 AM and 06:00 PM.",
+                )
         else:
             raw_time = str(args.scheduled_start)
+            try:
+                dt_check = datetime.fromisoformat(str(args.scheduled_start))
+                if dt_check.hour < 9 or dt_check.hour >= 18:
+                    return AgentToolResponse(
+                        tool_name="book_site_visit",
+                        success=False,
+                        error_message=f"Requested time {dt_check.strftime('%I:%M %p')} is outside standard project operating hours (09:00 AM to 06:00 PM).",
+                        anti_hallucination_guidance="Site visits can only be booked during operating hours between 09:00 AM and 06:00 PM.",
+                    )
+            except Exception:
+                pass
     formatted_time = _format_time_slot(raw_time)
 
     # 3. Double-Booking Prevention: Check if already booked for same project, date, and slot
@@ -753,6 +816,29 @@ def tool_book_site_visit(db: Session, args: BookSiteVisitToolInput) -> AgentTool
     db.commit()
     db.refresh(new_appt)
 
+    # If customer and project exist as UUIDs, also create SiteVisit record for CRM integration
+    if db is not None and args.customer_id:
+        try:
+            cust_uuid = uuid.UUID(str(args.customer_id))
+            proj_uuid = uuid.UUID(str(proj_id))
+            sched_start = slot_dt if "slot_dt" in locals() else datetime.combine(resolved_date, datetime.min.time(), tzinfo=timezone.utc).replace(hour=11)
+            sched_end = sched_start + timedelta(hours=1)
+            sv = SiteVisit(
+                id=new_appt.id,
+                customer_id=cust_uuid,
+                project_id=proj_uuid,
+                unit_id=uuid.UUID(str(args.unit_id)) if args.unit_id else None,
+                scheduled_start=sched_start,
+                scheduled_end=sched_end,
+                status="scheduled",
+                assigned_agent_name=args.assigned_agent_name or "Senior Property Advisor",
+                customer_notes=args.customer_notes or "Booked via live voice conversation.",
+            )
+            db.add(sv)
+            db.commit()
+        except Exception as sv_exc:
+            pass
+
     date_formatted = resolved_date.strftime("%A, %d %B %Y")
     spoken_confirmation = (
         f"Your visit to {proj_name} in {city} is confirmed for {date_formatted} at {formatted_time}. "
@@ -763,7 +849,9 @@ def tool_book_site_visit(db: Session, args: BookSiteVisitToolInput) -> AgentTool
         tool_name="book_site_visit",
         success=True,
         data={
+            "visit_id": str(new_appt.id),
             "appointment_id": str(new_appt.id),
+            "status": "scheduled",
             "booking_reference": f"BM-{str(new_appt.id)[:8].upper()}",
             "customer_name": customer_name,
             "contact_number": contact_number,

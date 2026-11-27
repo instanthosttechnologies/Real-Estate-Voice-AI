@@ -1,7 +1,7 @@
+import csv
 import io
 import uuid
 import pytest
-import pandas as pd
 from typing import Any, Dict, List
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
@@ -104,10 +104,13 @@ def tenant_fixture(isolated_db: Session):
 
 
 def create_csv_bytes(data: List[Dict[str, Any]]) -> bytes:
-    df = pd.DataFrame(data)
-    out = io.BytesIO()
-    df.to_csv(out, index=False)
-    return out.getvalue()
+    if not data:
+        return b""
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=list(data[0].keys()))
+    writer.writeheader()
+    writer.writerows(data)
+    return out.getvalue().encode("utf-8")
 
 
 def setup_realestate_dataset(db: Session, comp_id: uuid.UUID, user_id: uuid.UUID) -> DynamicDataset:

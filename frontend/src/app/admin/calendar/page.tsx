@@ -60,9 +60,18 @@ export default function AdminCalendarPage() {
   const [rescheduledCount, setRescheduledCount] = useState(0);
   const [cancelledCount, setCancelledCount] = useState(0);
 
+  // Helper to format today's date in local YYYY-MM-DD
+  const getTodayDateString = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
   // Controls & Filters
   const [viewMode, setViewMode] = useState<"month" | "list">("month");
-  const [currentDate, setCurrentDate] = useState<Date>(new Date(2026, 10, 26)); // Nov 26, 2026
+  const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -83,14 +92,14 @@ export default function AdminCalendarPage() {
     contact_number: "",
     property_name: "Godrej Aristocrat",
     city: "Gurugram",
-    visit_date: "2026-11-27",
+    visit_date: getTodayDateString(),
     visit_time: "10:00 AM - 11:00 AM",
     customer_notes: "",
   });
 
   const [showSlotChecker, setShowSlotChecker] = useState(false);
   const [slotCheckProject, setSlotCheckProject] = useState("Godrej Aristocrat");
-  const [slotCheckDate, setSlotCheckDate] = useState("2026-11-27");
+  const [slotCheckDate, setSlotCheckDate] = useState(getTodayDateString());
   const [slotCheckResult, setSlotCheckResult] = useState<any | null>(null);
 
   // Load appointments

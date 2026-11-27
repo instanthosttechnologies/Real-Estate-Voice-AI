@@ -214,10 +214,12 @@ class AmazonNovaSonicDriver(VoiceDriver):
             self._active_sessions[session_id]["receiver_task"] = receiver_task
 
             # Helper for bounded event transmission during initialization
+            is_mock_transport = type(self._transport).__name__ in ("MockBedrockStreamTransport", "MockTransport")
+
             async def _send_init_event(event_dict: Dict[str, Any], event_name: str, delay: float = 0.04) -> None:
                 self._active_sessions[session_id]["last_sent_event"] = event_name
                 await asyncio.wait_for(connection.send_event(event_dict), timeout=5.0)
-                if delay > 0:
+                if delay > 0 and not is_mock_transport:
                     await asyncio.sleep(delay)
 
             # 1. Send sessionStart (inference configuration & endpointing sensitivity)
@@ -274,6 +276,46 @@ class AmazonNovaSonicDriver(VoiceDriver):
                     ),
                     "contentEnd(SYSTEM)",
                     0.3,
+                )
+                if session_id not in self._active_sessions:
+                    return
+
+            # 4. If automatic greeting is enabled, trigger Nova Sonic greeting via INIT_USER turn
+            if getattr(settings, "ENABLE_AUTOMATIC_GREETING", False):
+                init_user_content_name = f"init_user_{uuid.uuid4().hex[:8]}"
+                init_text = f"Hello! I am {customer_name.strip()}." if customer_name else "Hello!"
+                await _send_init_event(
+                    BedrockNovaSonicSerializer.serialize_text_content_start(
+                        prompt_name=prompt_name,
+                        content_name=init_user_content_name,
+                        role="USER",
+                        interactive=True,
+                    ),
+                    "contentStart(INIT_USER)",
+                    0.05,
+                )
+                if session_id not in self._active_sessions:
+                    return
+
+                await _send_init_event(
+                    BedrockNovaSonicSerializer.serialize_text_input(
+                        prompt_name=prompt_name,
+                        content_name=init_user_content_name,
+                        text=init_text,
+                    ),
+                    "textInput(INIT_USER)",
+                    0.05,
+                )
+                if session_id not in self._active_sessions:
+                    return
+
+                await _send_init_event(
+                    BedrockNovaSonicSerializer.serialize_content_end(
+                        prompt_name=prompt_name,
+                        content_name=init_user_content_name,
+                    ),
+                    "contentEnd(INIT_USER)",
+                    0.1,
                 )
                 if session_id not in self._active_sessions:
                     return

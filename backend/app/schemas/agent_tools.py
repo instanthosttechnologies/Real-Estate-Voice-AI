@@ -97,6 +97,7 @@ class CheckVisitSlotsToolInput(BaseModel):
 class BookSiteVisitToolInput(BaseModel):
     customer_id: Optional[Any] = Field(None, description="Optional Customer UUID")
     project_id: Optional[Any] = Field(None, description="Project UUID, Project ID (e.g. PROJ_001), or project name")
+    project_identifier: Optional[str] = Field(None, description="Project or property name, e.g. 'Godrej Aristocrat', 'Sobha Neopolis'")
     unit_id: Optional[Any] = Field(None, description="Optional specific unit UUID")
     scheduled_start: Optional[Any] = Field(None, description="Visit start timestamp (ISO 8601)")
     scheduled_end: Optional[Any] = None

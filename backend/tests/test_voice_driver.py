@@ -966,7 +966,10 @@ def test_nova_sonic_orchestrator_end_to_end_tool_execution():
             )
 
             # Allow orchestrator to intercept toolUse, dispatch to database, and return toolResult
-            await asyncio.sleep(0.1)
+            for _ in range(20):
+                if any("toolResult" in e.get("event", {}) for e in mock_conn.sent_events):
+                    break
+                await asyncio.sleep(0.05)
 
             # Verify orchestrator notified client of tool execution
             tool_starts = [m for m in sent_texts if m.get("type") == "tool_call_start"]

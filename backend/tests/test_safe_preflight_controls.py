@@ -14,10 +14,12 @@ from app.services.voice.bedrock_streaming import MockBedrockStreamTransport
 @pytest.mark.asyncio
 async def test_use_mock_voice_default():
     """Verify USE_MOCK_VOICE is true by default and returns MockVoiceDriver."""
-    assert settings.USE_MOCK_VOICE is True
-    driver = get_voice_driver()
-    assert isinstance(driver, MockVoiceDriver)
-    assert driver.model_id == "amazon.nova-2-5-sonic"
+    from app.core.config import Settings
+    assert Settings.model_fields["USE_MOCK_VOICE"].default is True
+    with patch.object(settings, "USE_MOCK_VOICE", True):
+        driver = get_voice_driver()
+        assert isinstance(driver, MockVoiceDriver)
+        assert driver.model_id == "amazon.nova-2-5-sonic"
 
 
 @pytest.mark.asyncio
