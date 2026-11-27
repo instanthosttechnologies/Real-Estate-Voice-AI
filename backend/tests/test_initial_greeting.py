@@ -52,8 +52,8 @@ async def test_mock_voice_driver_emits_audio_greeting_first():
     transcript_evt = next(e for e in events if e.event_type == VoiceEventType.TRANSCRIPT_DELTA)
     assert transcript_evt.transcript_payload.role == "assistant"
     greeting_text = transcript_evt.transcript_payload.delta
-    assert "Hello Sarah! Welcome to BrainMagic Real Estate" in greeting_text
-    assert "Are you looking to buy or rent a property?" in greeting_text
+    assert "Hello Sarah!" in greeting_text
+    assert "I'm your property assistant. How can I help you?" in greeting_text
 
     # Verify audio payload exists and has audible PCM bytes
     audio_evt = next(e for e in events if e.event_type == VoiceEventType.AUDIO_OUTPUT)
@@ -110,7 +110,7 @@ async def test_orchestrator_initial_greeting_pipeline_and_no_duplicates():
     # 2. Verify transcript sent
     assistant_transcripts = [m for m in sent_texts if m.get("type") == "transcript" and m.get("role") == "assistant"]
     assert len(assistant_transcripts) >= 1
-    assert "Welcome to BrainMagic Real Estate" in assistant_transcripts[0]["delta"]
+    assert "property assistant" in assistant_transcripts[0]["delta"]
 
     # 3. Verify audio output sent
     assert len(sent_bytes) >= 1

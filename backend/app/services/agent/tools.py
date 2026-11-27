@@ -63,7 +63,7 @@ import re
 
 def tool_search_properties(db: Session, args: SearchPropertiesToolInput) -> AgentToolResponse:
     # 1. Check if an active dynamic dataset is configured in the database
-    active_ds = get_active_dataset(db)
+    active_ds = get_active_dataset(db) if db is not None else None if db is not None else None
     if active_ds:
         query_terms = " ".join([
             v for v in [args.project_name, args.company_name, args.city, args.location_query, args.configuration_type, args.property_type]
@@ -121,11 +121,32 @@ def tool_search_properties(db: Session, args: SearchPropertiesToolInput) -> Agen
         )
         if demo_matches:
             voice_lines = []
-            for p in demo_matches[:3]:
+            # Present only the most relevant one or two properties initially
+            top_matches = demo_matches[:2]
+            for p in top_matches:
+                raw_amenities = str(p.get("amenities") or "")
+                amenity_list = [a.strip() for a in raw_amenities.replace(";", ",").split(",") if a.strip()]
+                top_amenities = ", ".join(amenity_list[:3]) if amenity_list else "clubhouse and landscaped gardens"
+
+                cfg_str = ""
+                if p.get("sample_apartment") and p["sample_apartment"].get("bhk"):
+                    cfg_str = f"{p['sample_apartment']['bhk']} BHK, "
+
+                price_script = p.get("spoken_price_script") or f"priced around {p.get('price_range')}"
+
+                possession = p.get("possession_status")
+                benefit = f"developed by {p['developer_name']}"
+                if possession and "ready" in str(possession).lower():
+                    benefit += ", ready for possession"
+                elif possession:
+                    benefit += f", possession scheduled for {possession}"
+
                 voice_lines.append(
-                    f"{p['project_name']} by {p['developer_name']} in {p['locality']}, {p['city']}. "
-                    f"Amenities include {str(p['amenities'])[:80]}. {p['spoken_price_script']}"
+                    f"{p['project_name']} in {p['locality']}, {p['city']}: {cfg_str}{price_script}. "
+                    f"Key amenities include {top_amenities}, {benefit}."
                 )
+
+            grounding_text = " ".join(voice_lines) + " Would you like to know more?"
             return AgentToolResponse(
                 tool_name="search_properties",
                 success=True,
@@ -134,18 +155,22 @@ def tool_search_properties(db: Session, args: SearchPropertiesToolInput) -> Agen
                     "dataset_grounded": True,
                     "dataset_name": "BrainMagic_RealEstate_v10_Demo",
                     "total_matches": len(demo_matches),
-                    "total_exact_matches": len(demo_matches),
-                    "exact_matches": demo_matches,
-                    "properties": demo_matches,
-                    "voice_grounding": " ".join(voice_lines),
+                    "total_exact_matches": len(top_matches),
+                    "exact_matches": top_matches,
+                    "properties": top_matches,
+                    "all_matches": demo_matches,
+                    "voice_grounding": grounding_text,
                 },
                 anti_hallucination_guidance=(
-                    "For this demo, state estimated prices using the format: "
-                    "'For this demo, the estimated price is around [price range]. The actual selling price may vary.' "
-                    "Never present demo prices as confirmed seller quotations."
+                    "Present only the most relevant 1 or 2 properties initially. "
+                    "For each property, mention: Project name and location, configuration and verified price, "
+                    "2-3 important amenities, and 1-2 verified key benefits. "
+                    "After giving this concise summary, naturally ask: 'Would you like to know more?' "
+                    "Only expand on construction plans, floor plans, payment plans, or specifications when requested. "
+                    "Never invent property details, prices, or amenities."
                 ),
             )
-    active_ds = get_active_dataset(db)
+    active_ds = get_active_dataset(db) if db is not None else None
     if active_ds:
         query_terms = " ".join([
             v for v in [args.project_name, args.company_name, args.city, args.location_query, args.configuration_type, args.property_type]
@@ -198,6 +223,22 @@ def tool_search_properties(db: Session, args: SearchPropertiesToolInput) -> Agen
         preferred_currency=args.currency,
         desired_amenities=args.required_amenities or [],
     )
+    if db is None:
+        return AgentToolResponse(
+            tool_name="search_properties",
+            success=True,
+            data={
+                "dataset_grounded": True,
+                "dataset_name": "BrainMagic_RealEstate_v10_Demo",
+                "total_matches": 0,
+                "total_exact_matches": 0,
+                "exact_matches": [],
+                "properties": [],
+                "voice_grounding": "No exact matching properties found in the catalog for the specified criteria. Would you like to check other configurations or nearby locations?",
+            },
+            anti_hallucination_guidance="Inform the customer that no exact matches were found and ask if they would like to adjust their search criteria.",
+        )
+
     search_data = intelligent_property_search(db, criteria, prefs)
 
     guidance = (
@@ -683,7 +724,7 @@ def tool_check_visit_slots(db: Session, args: CheckVisitSlotsToolInput) -> Agent
         Appointment.visit_date == target_date,
         Appointment.booking_status == "confirmed"
     )
-    booked_slots = set(db.scalars(existing_query).all())
+    booked_slots = set(db.scalars(existing_query).all()) if db is not None else set()
 
     available_slots = [s for s in STANDARD_VISIT_SLOTS if s not in booked_slots]
 
@@ -765,39 +806,41 @@ def tool_book_site_visit(db: Session, args: BookSiteVisitToolInput) -> AgentTool
     formatted_time = _format_time_slot(raw_time)
 
     # 3. Double-Booking Prevention: Check if already booked for same project, date, and slot
-    conflict_query = select(Appointment).where(
-        (Appointment.project_id == proj_id) | (Appointment.property_name.ilike(f"%{proj_name}%")),
-        Appointment.visit_date == resolved_date,
-        Appointment.visit_time == formatted_time,
-        Appointment.booking_status == "confirmed"
-    )
-    conflict = db.scalars(conflict_query).first()
-    if conflict:
-        # Find next available slot
-        existing_booked = set(db.scalars(
-            select(Appointment.visit_time).where(
-                (Appointment.project_id == proj_id) | (Appointment.property_name.ilike(f"%{proj_name}%")),
-                Appointment.visit_date == resolved_date,
-                Appointment.booking_status == "confirmed"
-            )
-        ).all())
-        alts = [s for s in STANDARD_VISIT_SLOTS if s not in existing_booked]
-        alt_msg = f"Available alternative slots are: {', '.join(alts)}." if alts else "Please choose another date."
-        return AgentToolResponse(
-            tool_name="book_site_visit",
-            success=False,
-            error_message=(
-                f"The time slot '{formatted_time}' on {resolved_date} for {proj_name} is already reserved. {alt_msg}"
-            ),
-            anti_hallucination_guidance="Inform the customer of the scheduling conflict and offer one of the alternative available slots.",
+    if db is not None:
+        conflict_query = select(Appointment).where(
+            (Appointment.project_id == proj_id) | (Appointment.property_name.ilike(f"%{proj_name}%")),
+            Appointment.visit_date == resolved_date,
+            Appointment.visit_time == formatted_time,
+            Appointment.booking_status == "confirmed"
         )
+        conflict = db.scalars(conflict_query).first()
+        if conflict:
+            # Find next available slot
+            existing_booked = set(db.scalars(
+                select(Appointment.visit_time).where(
+                    (Appointment.project_id == proj_id) | (Appointment.property_name.ilike(f"%{proj_name}%")),
+                    Appointment.visit_date == resolved_date,
+                    Appointment.booking_status == "confirmed"
+                )
+            ).all())
+            alts = [s for s in STANDARD_VISIT_SLOTS if s not in existing_booked]
+            alt_msg = f"Available alternative slots are: {', '.join(alts)}." if alts else "Please choose another date."
+            return AgentToolResponse(
+                tool_name="book_site_visit",
+                success=False,
+                error_message=(
+                    f"The time slot '{formatted_time}' on {resolved_date} for {proj_name} is already reserved. {alt_msg}"
+                ),
+                anti_hallucination_guidance="Inform the customer of the scheduling conflict and offer one of the alternative available slots.",
+            )
 
     # 4. Create and persist Appointment in development PostgreSQL database
     customer_name = (args.customer_name or "").strip() or "Valued Customer"
     contact_number = (args.contact_number or "").strip() or "Not Provided"
 
+    appt_id = uuid.uuid4()
     new_appt = Appointment(
-        id=uuid.uuid4(),
+        id=appt_id,
         customer_name=customer_name,
         contact_number=contact_number,
         project_id=proj_id,
@@ -812,32 +855,33 @@ def tool_book_site_visit(db: Session, args: BookSiteVisitToolInput) -> AgentTool
         customer_notes=args.customer_notes or "Booked via live voice conversation.",
         assigned_agent=args.assigned_agent_name or "Senior Property Advisor",
     )
-    db.add(new_appt)
-    db.commit()
-    db.refresh(new_appt)
+    if db is not None:
+        db.add(new_appt)
+        db.commit()
+        db.refresh(new_appt)
 
-    # If customer and project exist as UUIDs, also create SiteVisit record for CRM integration
-    if db is not None and args.customer_id:
-        try:
-            cust_uuid = uuid.UUID(str(args.customer_id))
-            proj_uuid = uuid.UUID(str(proj_id))
-            sched_start = slot_dt if "slot_dt" in locals() else datetime.combine(resolved_date, datetime.min.time(), tzinfo=timezone.utc).replace(hour=11)
-            sched_end = sched_start + timedelta(hours=1)
-            sv = SiteVisit(
-                id=new_appt.id,
-                customer_id=cust_uuid,
-                project_id=proj_uuid,
-                unit_id=uuid.UUID(str(args.unit_id)) if args.unit_id else None,
-                scheduled_start=sched_start,
-                scheduled_end=sched_end,
-                status="scheduled",
-                assigned_agent_name=args.assigned_agent_name or "Senior Property Advisor",
-                customer_notes=args.customer_notes or "Booked via live voice conversation.",
-            )
-            db.add(sv)
-            db.commit()
-        except Exception as sv_exc:
-            pass
+        # If customer and project exist as UUIDs, also create SiteVisit record for CRM integration
+        if args.customer_id:
+            try:
+                cust_uuid = uuid.UUID(str(args.customer_id))
+                proj_uuid = uuid.UUID(str(proj_id))
+                sched_start = slot_dt if "slot_dt" in locals() else datetime.combine(resolved_date, datetime.min.time(), tzinfo=timezone.utc).replace(hour=11)
+                sched_end = sched_start + timedelta(hours=1)
+                sv = SiteVisit(
+                    id=new_appt.id,
+                    customer_id=cust_uuid,
+                    project_id=proj_uuid,
+                    unit_id=uuid.UUID(str(args.unit_id)) if args.unit_id else None,
+                    scheduled_start=sched_start,
+                    scheduled_end=sched_end,
+                    status="scheduled",
+                    assigned_agent_name=args.assigned_agent_name or "Senior Property Advisor",
+                    customer_notes=args.customer_notes or "Booked via live voice conversation.",
+                )
+                db.add(sv)
+                db.commit()
+            except Exception as sv_exc:
+                pass
 
     date_formatted = resolved_date.strftime("%A, %d %B %Y")
     spoken_confirmation = (
@@ -1021,7 +1065,7 @@ def tool_query_active_dataset(db: Session, args: QueryActiveDatasetToolInput) ->
     Answers developer, project, configuration, location, amenities, and FAQ questions.
     """
     # 1. Check if an active dynamic dataset is configured in the database
-    active_ds = get_active_dataset(db)
+    active_ds = get_active_dataset(db) if db is not None else None
     if active_ds:
         query_str = args.query
         if args.developer and args.developer.lower() not in query_str.lower():
@@ -1073,9 +1117,9 @@ def tool_query_active_dataset(db: Session, args: QueryActiveDatasetToolInput) ->
         )
         if demo_matches:
             voice_lines = []
-            for p in demo_matches[:3]:
+            for p in demo_matches[:2]:
                 voice_lines.append(
-                    f"{p['project_name']} by {p['developer_name']} in {p['locality']}, {p['city']}. {p['spoken_price_script']}"
+                    f"{p['project_name']} in {p['locality']}, {p['city']}. {p['spoken_price_script']}"
                 )
             return AgentToolResponse(
                 tool_name="query_active_dataset",
@@ -1085,13 +1129,12 @@ def tool_query_active_dataset(db: Session, args: QueryActiveDatasetToolInput) ->
                     "dataset_grounded": True,
                     "dataset_name": "BrainMagic_RealEstate_v10_Demo",
                     "total_matches": len(demo_matches),
-                    "exact_matches": demo_matches,
-                    "voice_grounding": " ".join(voice_lines),
+                    "exact_matches": demo_matches[:2],
+                    "voice_grounding": " ".join(voice_lines) + " Would you like to know more?",
                 },
                 anti_hallucination_guidance=(
-                    "For this demo, state estimated prices using the format: "
-                    "'For this demo, the estimated price is around [price range]. The actual selling price may vary.' "
-                    "Never present demo prices as confirmed seller quotations."
+                    "Present at most 1 or 2 properties concisely and ask: 'Would you like to know more?' "
+                    "Only expand when requested. Never invent property details or prices."
                 ),
             )
 

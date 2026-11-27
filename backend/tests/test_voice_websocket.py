@@ -151,7 +151,7 @@ def test_voice_ws_customer_streaming_lifecycle(auth_tokens):
         greet_data = json.loads(greet_raw)
         assert greet_data["type"] == "transcript"
         assert greet_data["role"] == "assistant"
-        assert "real estate" in greet_data["delta"].lower()
+        assert "property assistant" in greet_data["delta"].lower()
 
         # 3. Expect greeting audio bytes
         audio_chunk = ws.receive_bytes()

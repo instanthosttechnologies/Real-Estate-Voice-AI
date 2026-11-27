@@ -30,6 +30,7 @@ class SessionState(BaseModel):
     last_search_criteria: Optional[Dict[str, Any]] = None
     selected_property: Optional[Dict[str, Any]] = None  # Active property context for follow-up questions
     booked_visit_id: Optional[uuid.UUID] = None
+    clarification_questions_count: int = 0
     turn_count: int = 0
     history: List[Dict[str, Any]] = Field(default_factory=list)
     is_active: bool = True

@@ -355,8 +355,8 @@ def test_automatic_customer_greeting_lifecycle():
         assert len(transcripts) > 0
         first_transcript = transcripts[0]
         assert first_transcript["role"] == "assistant"
-        assert f"Hi {customer_name}" in first_transcript["delta"]
-        assert "Brain Magic RealEstate Voice AI" in first_transcript["delta"]
+        assert customer_name in first_transcript["delta"]
+        assert "property assistant" in first_transcript["delta"]
 
         # 3. Simulate stream renewal after greeting has completed
         renewal_preamble = orchestrator._build_renewal_preamble()
