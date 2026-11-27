@@ -113,6 +113,8 @@ class AmazonNovaSonicDriver(VoiceDriver):
         max_duration: Optional[int] = None,
         preamble_callback: Optional[Callable[[], str]] = None,
         customer_name: Optional[str] = None,
+        voice_id: Optional[str] = None,
+        language: Optional[str] = None,
     ) -> None:
         """
         Initializes a bidirectional streaming session with Amazon Nova 2.5 Sonic:
@@ -170,11 +172,20 @@ class AmazonNovaSonicDriver(VoiceDriver):
             )
 
         stream_lock = asyncio.Lock()
+        if voice_id:
+            chosen_voice_id = voice_id
+        elif language and str(language).lower().startswith("hi"):
+            chosen_voice_id = "kiara"
+        else:
+            chosen_voice_id = getattr(settings, "NOVA_SONIC_VOICE_ID", "matthew")
+
         self._active_sessions[session_id] = {
             "preamble": prompt_preamble,
             "preamble_callback": preamble_callback,
             "tools": tools,
             "format": audio_format,
+            "voice_id": chosen_voice_id,
+            "language": language or "en-US",
             "prompt_name": prompt_name,
             "audio_content_name": audio_content_name,
             "is_interrupted": False,
@@ -237,7 +248,7 @@ class AmazonNovaSonicDriver(VoiceDriver):
             prompt_start_evt = BedrockNovaSonicSerializer.serialize_prompt_start(
                 prompt_name=prompt_name,
                 tools=tools,
-                voice_id=settings.NOVA_SONIC_VOICE_ID,
+                voice_id=chosen_voice_id,
                 output_sample_rate=settings.NOVA_SONIC_OUTPUT_SAMPLE_RATE,
             )
             await _send_init_event(prompt_start_evt, "promptStart", 0.3)
@@ -749,11 +760,12 @@ class AmazonNovaSonicDriver(VoiceDriver):
                     0.04,
                 )
                 # promptStart with declared tools
+                voice_id_to_use = session_meta.get("voice_id", getattr(settings, "NOVA_SONIC_VOICE_ID", "matthew"))
                 await _send_renewal_event(
                     BedrockNovaSonicSerializer.serialize_prompt_start(
                         prompt_name=new_prompt_name,
                         tools=session_meta.get("tools", []),
-                        voice_id=settings.NOVA_SONIC_VOICE_ID,
+                        voice_id=voice_id_to_use,
                         output_sample_rate=settings.NOVA_SONIC_OUTPUT_SAMPLE_RATE,
                     ),
                     "promptStart",

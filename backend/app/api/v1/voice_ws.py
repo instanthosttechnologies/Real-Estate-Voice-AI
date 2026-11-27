@@ -128,12 +128,16 @@ async def voice_websocket_endpoint(
 
     # 1. Mandatory Initial Authentication Handshake
     auth_token = None
+    initial_language = "en-US"
+    initial_voice_id = None
     try:
-        # Wait up to 5.0 seconds for initial auth handshake frame: {"type": "auth", "token": "..."}
+        # Wait up to 5.0 seconds for initial auth handshake frame: {"type": "auth", "token": "...", "language": "hi-IN", "voice_id": "kiara"}
         init_msg = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
         data = json.loads(init_msg)
         if isinstance(data, dict) and data.get("type") == "auth":
             auth_token = data.get("token")
+            initial_language = data.get("language") or "en-US"
+            initial_voice_id = data.get("voice_id")
         else:
             await websocket.close(
                 code=status.WS_1008_POLICY_VIOLATION,
@@ -279,6 +283,8 @@ async def voice_websocket_endpoint(
         user_id=audit_user_id,
         is_verified=is_verified,
         company_id=company_id,
+        language=initial_language,
+        voice_id=initial_voice_id,
     )
 
     try:
@@ -347,6 +353,18 @@ async def voice_websocket_endpoint(
                             await websocket.send_text(json.dumps({"type": "error", "message": "Text frame exceeds maximum length limit (10,000 characters)."}))
                             continue
                         await orchestrator.handle_incoming_text(content)
+
+                    elif msg_type == "set_language":
+                        new_lang = payload_json.get("language", "en-US")
+                        new_voice = payload_json.get("voice_id")
+                        await orchestrator.set_language(new_lang, new_voice)
+                        await websocket.send_text(
+                            json.dumps({
+                                "type": "language_changed",
+                                "language": orchestrator.language,
+                                "voice_id": orchestrator.voice_id,
+                            })
+                        )
 
                     elif msg_type == "interrupt":
                         await orchestrator.handle_interruption()

@@ -23,6 +23,8 @@ class SessionState(BaseModel):
     customer_id: Optional[uuid.UUID] = None
     user_id: Optional[uuid.UUID] = None
     user_role: str = "customer"
+    language: str = "en-US"
+    voice_id: str = "kiara"
     requirements: ExtractedCustomerRequirements = Field(default_factory=ExtractedCustomerRequirements)
     saved_requirements_from_profile: Optional[Dict[str, Any]] = None
     viewed_properties: List[uuid.UUID] = Field(default_factory=list)
@@ -45,6 +47,21 @@ class SessionState(BaseModel):
     def get_selected_property(self) -> Optional[Dict[str, Any]]:
         """Retrieves the active focused property context."""
         return self.selected_property
+
+    def set_language(self, language: str, voice_id: Optional[str] = None) -> None:
+        """
+        Switches the session conversational language (e.g. 'hi-IN' or 'en-US')
+        and optional voiceId while strictly preserving accumulated customer
+        requirements, viewed properties, and search context.
+        """
+        self.language = language
+        if voice_id:
+            self.voice_id = voice_id
+        elif language.lower().startswith("hi"):
+            self.voice_id = "kiara"
+        else:
+            self.voice_id = "matthew"
+        self.last_updated_at = datetime.now(timezone.utc)
 
     def update_requirements(self, new_req: ExtractedCustomerRequirements) -> Dict[str, Any]:
         """
@@ -109,8 +126,6 @@ class SessionState(BaseModel):
             missing.append("configuration (e.g. 2BHK, 3BHK)")
         if not self.requirements.budget_max:
             missing.append("budget")
-        elif not self.requirements.currency:
-            missing.append("currency (e.g. USD, INR, EUR)")
 
         self.requirements.missing_fields = missing
         self.requirements.is_complete = len(missing) == 0
@@ -173,8 +188,6 @@ class SessionState(BaseModel):
                 missing.append("configuration (e.g. 2BHK, 3BHK)")
             if not self.requirements.budget_max:
                 missing.append("budget")
-            elif not self.requirements.currency:
-                missing.append("currency")
 
             self.requirements.missing_fields = missing
             self.requirements.is_complete = len(missing) == 0

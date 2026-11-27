@@ -612,8 +612,11 @@ STANDARD_VISIT_SLOTS = [
 ]
 
 
+DEV_DIGIT_MAP = str.maketrans("०१२३४५६७८९", "0123456789")
+
+
 def _parse_visit_date(date_val: Any) -> date:
-    """Parses relative ('today', 'tomorrow', 'day after tomorrow', 'Saturday') or formatted date string."""
+    """Parses relative ('today', 'tomorrow', 'day after tomorrow', 'Saturday', 'आज', 'कल', 'परसों', 'रविवार') or formatted date string."""
     now_ist = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
     base_date = now_ist.date()
     if not date_val:
@@ -624,17 +627,30 @@ def _parse_visit_date(date_val: Any) -> date:
     if isinstance(date_val, datetime):
         return date_val.date()
 
-    raw = str(date_val).strip().lower()
-    if "today" in raw:
-        return base_date
-    if "day after tomorrow" in raw or "day after" in raw:
-        return base_date + timedelta(days=2)
-    if "tomorrow" in raw:
-        return base_date + timedelta(days=1)
+    raw = str(date_val).strip().lower().translate(DEV_DIGIT_MAP)
 
-    weekdays = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
-    for idx, wname in enumerate(weekdays):
-        if wname in raw:
+    # Hindi & English relative day terms
+    if "today" in raw or "आज" in raw:
+        return base_date
+    if "day after tomorrow" in raw or "day after" in raw or "परसों" in raw or "parso" in raw:
+        return base_date + timedelta(days=2)
+    if "tomorrow" in raw or "कल" in raw or "kal" in raw:
+        return base_date + timedelta(days=1)
+    if "अगले हफ्ते" in raw or "next week" in raw:
+        return base_date + timedelta(days=7)
+
+    # Weekdays in English & Hindi
+    weekday_map = [
+        (["monday", "सोमवार", "somwar"], 0),
+        (["tuesday", "मंगलवार", "mangalwar"], 1),
+        (["wednesday", "बुधवार", "budhwar"], 2),
+        (["thursday", "गुरुवार", "बृहस्पतिवार", "वीरवार", "guruwar"], 3),
+        (["friday", "शुक्रवार", "shukrawar"], 4),
+        (["saturday", "शनिवार", "सनीवार", "shaniwar"], 5),
+        (["sunday", "रविवार", "इतवार", "raviwar", "itwar"], 6),
+    ]
+    for names, idx in weekday_map:
+        if any(name in raw for name in names):
             current_wd = base_date.weekday()
             days_ahead = (idx - current_wd) % 7
             if days_ahead == 0:
@@ -655,19 +671,28 @@ def _parse_visit_date(date_val: Any) -> date:
 
 
 def _format_time_slot(raw_time: Optional[str]) -> str:
-    """Normalizes colloquial spoken time strings ('2pm', '11am', 'morning') to standard slots."""
+    """Normalizes colloquial spoken time strings in English and Hindi ('2pm', '11am', 'दोपहर 2 बजे', 'शाम 5 बजे') to standard slots."""
     if not raw_time:
         return "11:30 AM - 12:30 PM"
-    s = str(raw_time).strip().lower()
-    if "10" in s or "ten" in s or "morning" in s and "11" not in s:
+    s = str(raw_time).strip().lower().translate(DEV_DIGIT_MAP)
+
+    # Hindi number words to digits using word boundaries so 'दो' does not clobber 'दोपहर'
+    hindi_time_words = [
+        ("दस", "10"), ("ग्यारह", "11"), ("बारह", "12"),
+        ("दो", "2"), ("तीन", "3"), ("चार", "4"), ("पांच", "5"), ("छह", "6"),
+    ]
+    for hw, dw in hindi_time_words:
+        s = re.sub(rf"(?<![^\s.,!?]){hw}(?![^\s.,!?])", dw, s)
+
+    if "10" in s or "ten" in s or ("morning" in s or "सुबह" in s) and "11" not in s:
         return "10:00 AM - 11:00 AM"
-    if "11" in s or "eleven" in s or "noon" in s:
+    if "11" in s or "eleven" in s or "noon" in s or "दुपहर" in s and "2" not in s:
         return "11:30 AM - 12:30 PM"
-    if "2" in s or "two" in s or "afternoon" in s and "3" not in s and "4" not in s:
+    if "2" in s or "two" in s or ("afternoon" in s or "दोपहर" in s) and "3" not in s and "4" not in s:
         return "02:00 PM - 03:00 PM"
     if "3" in s or "three" in s or "4" in s or "four" in s:
         return "03:30 PM - 04:30 PM"
-    if "5" in s or "five" in s or "6" in s or "six" in s or "evening" in s:
+    if "5" in s or "five" in s or "6" in s or "six" in s or "evening" in s or "शाम" in s:
         return "05:00 PM - 06:00 PM"
     return str(raw_time).strip()
 

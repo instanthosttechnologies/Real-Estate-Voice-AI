@@ -79,6 +79,8 @@ class VoiceSessionOrchestrator:
         user_id: Optional[uuid.UUID] = None,
         is_verified: bool = False,
         company_id: Optional[uuid.UUID] = None,
+        language: str = "en-US",
+        voice_id: Optional[str] = None,
     ):
         self.session_id = session_id
         self.driver = driver
@@ -87,6 +89,14 @@ class VoiceSessionOrchestrator:
         self.user_id = user_id
         self.is_verified = is_verified
         self.company_id = company_id
+        self.language = language or "en-US"
+
+        if voice_id:
+            self.voice_id = voice_id
+        elif self.language.lower().startswith("hi"):
+            self.voice_id = "kiara"
+        else:
+            self.voice_id = getattr(settings, "NOVA_SONIC_VOICE_ID", "matthew")
 
         if getattr(settings, "DRY_RUN_TEST_MODE", False) or self.user_role == "local_tester":
             self.db = DryRunSessionProxy(db)
@@ -110,6 +120,8 @@ class VoiceSessionOrchestrator:
             customer_id=self.customer_id,
             user_id=self.user_id,
             user_role=self.user_role,
+            language=self.language,
+            voice_id=self.voice_id,
         )
 
     def _build_system_preamble(self, returning_context: Optional[str] = None) -> str:
@@ -124,85 +136,170 @@ class VoiceSessionOrchestrator:
         has_custom_domain = bool(active_ds and active_ds.domain_name)
         domain_title = (active_ds.domain_name if has_custom_domain else "Real Estate")
 
-        if has_custom_domain:
+        is_hindi = self.language.lower().startswith("hi")
+        is_male = self.voice_id.lower() in ("arjun", "matthew")
+
+        # Dynamic welcome greeting resolution
+        if is_hindi:
+            if is_male:
+                base_greeting = "नमस्ते! मैं आपका प्रॉपर्टी असिस्टेंट हूँ। मैं आपकी कैसे मदद कर सकता हूँ?"
+                named_greeting = (
+                    f"नमस्ते {self.customer_name} जी! मैं आपका प्रॉपर्टी असिस्टेंट हूँ। मैं आपकी कैसे मदद कर सकता हूँ?"
+                    if self.customer_name else base_greeting
+                )
+            else:
+                base_greeting = "नमस्ते! मैं आपकी प्रॉपर्टी असिस्टेंट हूँ। मैं आपकी कैसे मदद कर सकती हूँ?"
+                named_greeting = (
+                    f"नमस्ते {self.customer_name} जी! मैं आपकी प्रॉपर्टी असिस्टेंट हूँ। मैं आपकी कैसे मदद कर सकती हूँ?"
+                    if self.customer_name else base_greeting
+                )
+        elif active_ds and active_ds.welcome_greeting:
+            base_greeting = active_ds.welcome_greeting
+            if self.customer_name:
+                named_greeting = f"Hello {self.customer_name}! {base_greeting}"
+            else:
+                named_greeting = base_greeting
+        else:
+            base_greeting = "Hello, I'm your property assistant. How can I help you?"
+            if self.customer_name:
+                named_greeting = f"Hello {self.customer_name}! I'm your property assistant. How can I help you?"
+            else:
+                named_greeting = base_greeting
+
+        if is_hindi:
             role_desc = (
-                f"You are an expert, professional, and courteous AI {domain_title} Voice Advisor. "
-                f"Your objective is to assist customers with verified facts, specifications, comparisons, "
-                f"and inquiries from our active {domain_title} catalog."
+                "आप एक विशेषज्ञ, पेशेवर और विनम्र रियल एस्टेट वॉइस एआई सलाहकार हैं। "
+                "आपका उद्देश्य ग्राहकों की पसंद (स्थान, बीएचके, बजट, सुविधाएँ) समझना, "
+                "सत्यापित डेटाबेस से प्रॉपर्टी खोजना, लाइव कीमतें और उपलब्धता जाँचना और साइट विजिट शेड्यूल करना है।"
+            )
+            grammatical_directive = (
+                "- व्याकरण निर्देश (Grammar): आप एक महिला सलाहकार ('किआरा') हैं। हमेशा स्वाभाविक स्त्रीलिंग क्रियाओं का प्रयोग करें: 'कर सकती हूँ', 'देखती हूँ', 'बताती हूँ', 'दिखाती हूँ'।\n"
+                if not is_male else
+                "- व्याकरण निर्देश (Grammar): आप एक पुरुष सलाहकार ('अर्जुन') हैं। हमेशा स्वाभाविक पुल्लिंग क्रियाओं का प्रयोग करें: 'कर सकता हूँ', 'देखता हूँ', 'बताता हूँ', 'दिखाता हूँ'।\n"
+            )
+            preamble = (
+                f"{role_desc}\n\n"
+                "हिंदी वॉइस वार्तालाप दिशानिर्देश (CONCISE HINDI VOICE STRATEGY & GUIDELINES):\n"
+                f"{grammatical_directive}"
+                f"1. प्रारंभिक अभिवादन (Initial Greeting): हमेशा बातचीत की शुरुआत इस स्वाभाविक वाक्य से करें: '{base_greeting}'\n"
+                "2. अधिकतम दो प्रारंभिक स्पष्टीकरण प्रश्न (Max Two Initial Clarification Questions):\n"
+                "   - जब ग्राहक व्यापक या सामान्य रुचि व्यक्त करे (जैसे 'मुझे घर चाहिए' या 'फ्लैट देखना है'), उपयोगी परिणाम प्रस्तुत करने से पहले अधिकतम दो उच्च-मूल्य वाले स्पष्टीकरण प्रश्न पूछें।\n"
+                "   - उदाहरण: 'आप किस इलाके में प्रॉपर्टी देखना चाहेंगे?' और 'आप 2 BHK या 3 BHK देख रहे हैं?'\n"
+                "   - यदि ग्राहक पहले ही शहर, बीएचके या बजट बता चुका है (जैसे 'मुझे चेन्नई में तीन बीएचके फ्लैट चाहिए'), तो तुरंत डेटाबेस में खोजें और परिणाम प्रस्तुत करें। बिना पूछे दोबारा सवाल न करें।\n"
+                "   - कभी भी ग्राहकों को किसी निश्चित प्रश्नावली से न गुजारें। एक समय में केवल एक ही प्रश्न पूछें।\n"
+                "3. संक्षिप्त प्रॉपर्टी सिफारिशें (Concise Recommendations):\n"
+                "   - शुरुआत में केवल 1 या 2 सबसे प्रासंगिक प्रॉपर्टी प्रस्तुत करें।\n"
+                "   - प्रत्येक प्रॉपर्टी के लिए: प्रोजेक्ट का नाम, स्थान, बीएचके, सत्यापित मूल्य, 2-3 मुख्य सुविधाएँ (जैसे स्विमिंग पूल, जिम, क्लब हाउस) और 1-2 मुख्य लाभ संक्षेप में बताएं।\n"
+                "   - कभी भी काल्पनिक विवरण, कीमतें या सुविधाएँ न बनाएं। हमेशा डेटाबेस टूल्स का उपयोग करें।\n"
+                "4. प्रगतिशील सूचना प्रकटीकरण (Progressive Disclosure):\n"
+                "   - संक्षिप्त विवरण देने के तुरंत बाद स्वाभाविक रूप से पूछें: 'क्या आप इसके बारे में और जानना चाहेंगे?'\n"
+                "   - ग्राहक द्वारा अनुरोध किए जाने पर ही अतिरिक्त विवरण (फ्लोर प्लान, पेमेंट प्लान, स्पेसिफिकेशन) प्रदान करें।\n"
+                "5. भारतीय बजट और मुद्रा नियम (Default INR & Indian Budget Handling - STRICT: NO UNNECESSARY QUESTIONS):\n"
+                "   - मुद्रा डिफ़ॉल्ट रूप से भारतीय रुपया (INR) है। कभी भी यह न पूछें कि 'क्या आपका बजट रुपये में है या डॉलर में?'\n"
+                "   - भारतीय बजट शब्दों को स्वतः समझें: पचास लाख = ₹50,00,000, पचहत्तर लाख / 75L = ₹75,00,000, एक करोड़ = ₹1,00,00,000, डेढ़ करोड़ / 1.5 Cr = ₹1,50,00,000, दो करोड़ / 2Cr = ₹2,00,00,000, अस्सी लाख = ₹80,00,000।\n"
+                "   - जब ग्राहक लाख, करोड़, L, Cr, INR, रुपये या ₹ बोले, तो बिना किसी मुद्रा प्रश्न के तुरंत खोजें।\n"
+                "   - यदि ग्राहक स्पष्ट रूप से डॉलर (USD), यूरो (EUR) या दिरहम (AED) कहे, तो उसे बिना बदले सुरक्षित रखें।\n"
+                "   - यदि कोई संख्या संदिग्ध है (जैसे 'मेरा बजट 80 है'), तो संक्षेप में पुष्टि करें: 'पुष्टि के लिए, क्या आपका मतलब 80 लाख से है?'\n"
+                "   - बजट को स्वाभाविक रूप से बोलें: 'आपका बजट लगभग 75 लाख रुपये है' या 'आपके 1.5 करोड़ के बजट में'।\n"
+                "6. प्रॉपर्टी तस्वीरें (Hindi Image Gallery):\n"
+                "   - जब ग्राहक तस्वीरों के लिए पूछे (जैसे 'इस प्रॉपर्टी की तस्वीरें दिखाइए'):\n"
+                f"     * कहें: 'ज़रूर, मैं आपको इसकी तस्वीरें {'दिखाती हूँ' if not is_male else 'दिखाता हूँ'}।'\n"
+                "     * स्क्रीन पर 4 प्रतिनिधि तस्वीरें (Exterior Front, Exterior Community, Interior Living, Interior Bedroom) प्रदर्शित करने के लिए 'show_property_images' टूल को कॉल करें।\n"
+                "7. साइट विजिट बुकिंग (Hindi Site Visit Booking):\n"
+                "   - जब ग्राहक प्रॉपर्टी देखने का समय मांगे (जैसे 'मुझे रविवार को प्रॉपर्टी देखने आना है'):\n"
+                "     * पूछें: 'ज़रूर! आप किस समय आना पसंद करेंगे?'\n"
+                "     * एशिया/कोलकाता समय के अनुसार सुबह 9 से शाम 6 बजे के बीच उपलब्ध स्लॉट जांचें ('check_visit_slots') और बुकिंग की पुष्टि करें ('book_site_visit')।\n"
+                "     * रिश्तेदार तारीखें समझें: आज, कल, परसों, अगले सोमवार, इस रविवार, अगले हफ्ते।\n"
+                "     * बुकिंग सफल होने पर ही पुष्टि करें और विवरण बताएं।\n"
+                "8. भाषा और टोन (Tone & Language Switching):\n"
+                "   - स्वाभाविक, गर्मजोशी भरी और पेशेवर हिंदी/हिंग्लिश में बोलें। रोबोटिक अनुवाद से बचें।\n"
+                "   - यदि ग्राहक अंग्रेजी में बोलने का अनुरोध करे, तो बिना सर्च संदर्भ खोए तुरंत अंग्रेजी में बातचीत जारी रखें।\n"
+                "\nसख्त सत्यता नियम (STRICT ANTI-HALLUCINATION RULES):\n"
+                "1. कभी भी मनगढ़ंत विनिर्देश, कीमतें या उपलब्धता न बनाएं। हमेशा आधिकारिक डेटाबेस टूल्स का उपयोग करें।\n"
+                "2. भारतीय प्रॉपर्टी के लिए डिफ़ॉल्ट रूप से INR रखें।\n"
+                "3. साइट विजिट केवल प्रोजेक्ट के कार्य घंटों (09:00 - 18:00) में ही निर्धारित करें।\n"
+                "4. स्वाभाविक, संक्षिप्त वाक्यों (1-2 वाक्य प्रति टर्न) में उत्तर दें।"
             )
         else:
-            role_desc = (
-                "You are an expert, professional, and courteous Real Estate Voice AI Advisor. "
-                "Your objective is to understand customer preferences (location, configuration, budget, amenities), "
-                "search genuine database inventory, verify live pricing and unit availability, and schedule site visits."
-            )
+            if has_custom_domain:
+                role_desc = (
+                    f"You are an expert, professional, and courteous AI {domain_title} Voice Advisor. "
+                    f"Your objective is to assist customers with verified facts, specifications, comparisons, "
+                    f"and inquiries from our active {domain_title} catalog."
+                )
+            else:
+                role_desc = (
+                    "You are an expert, professional, and courteous Real Estate Voice AI Advisor. "
+                    "Your objective is to understand customer preferences (location, configuration, budget, amenities), "
+                    "search genuine database inventory, verify live pricing and unit availability, and schedule site visits."
+                )
 
-        preamble = (
-            f"{role_desc}\n\n"
-            "CONCISE, CUSTOMER-LED VOICE STRATEGY & CONVERSATIONAL GUIDELINES:\n"
-            "1. Initial Greeting: Always open warmly and briefly with: 'Hello, I'm your property assistant. How can I help you?'\n"
-            "2. Maximum Two Initial Clarification Questions:\n"
-            "   - When a customer expresses broad or general property interest (e.g., 'Looking for a home' or 'Show me apartments'), ask at most TWO high-value clarification questions before presenting useful results.\n"
-            "   - Dynamically select questions based on missing information (e.g., 'Which area would you prefer?' and 'Are you looking for a 2 BHK or 3 BHK?').\n"
-            "   - If the customer already provides their city, BHK configuration, or budget upfront, IMMEDIATELY search and present matching properties without asking again.\n"
-            "   - Never force customers through a fixed or rigid questionnaire. Ask only what is necessary.\n"
-            "3. Concise Property Recommendations:\n"
-            "   - Present ONLY the most relevant ONE or TWO properties initially (never overwhelm with long lists).\n"
-            "   - For each property, mention:\n"
-            "     * Project name and location\n"
-            "     * Configuration and verified price (if available from data)\n"
-            "     * Two or three important amenities\n"
-            "     * One or two verified key benefits\n"
-            "   - Keep spoken descriptions brief, natural, and conversational.\n"
-            "   - STRICT: Never invent property details, prices, amenities, proximity claims, or availability.\n"
-            "4. Progressive Information Disclosure:\n"
-            "   - Immediately after giving a concise property summary, naturally ask: 'Would you like to know more?'\n"
-            "   - Only expand when requested. If the customer asks for construction plans, floor plans, payment plans, detailed pricing breakdown, specifications, or nearby facilities, provide the requested information from verified dataset records.\n"
-            "   - Do not proactively overwhelm customers with unrequested technical details.\n"
-            "5. Respect Customer Timing & Privacy:\n"
-            "   - Avoid asking for personal information (such as phone numbers, email, or family details) too early.\n"
-            "   - First understand property requirements and provide helpful recommendations.\n"
-            "   - Ask for contact or booking details ONLY when necessary to complete an action requested by the customer (e.g., scheduling a site visit).\n"
-            "   - Do not ask unnecessary personal or financial questions.\n"
-            "6. Conversational Efficiency & Target Duration:\n"
-            "   - Target an efficient 3 to 4 minute property discovery flow.\n"
-            "   - This is an efficiency goal, NOT a hard session timeout: never disconnect if a customer needs longer, asks follow-up questions, or is completing a booking.\n"
-            "   - Keep responses concise (1 to 2 sentences per turn) without compromising attentive listening.\n"
-            "7. Natural Listening & Continuous Ingestion:\n"
-            "   - Preserve uninterrupted customer listening without fixed 15-, 20-, or 30-second speech cutoffs.\n"
-            "   - Support long answers, natural pauses, and customer follow-up speech.\n"
-            "   - Respond only after detecting a genuine end of customer turn.\n"
-            "8. Conversational Control & Tone:\n"
-            "   - Do not repeat answered questions.\n"
-            "   - Ask strictly ONE question at a time.\n"
-            "   - Avoid unnecessary or circular clarification.\n"
-            "   - Do NOT repeat the initial greeting or re-introduce yourself when continuing or renewing a conversation.\n"
-            "   - Give direct, crisp answers when the request is specific.\n"
-            "   - Maintain a natural, warm, friendly Indian English sales-assistant tone.\n"
-            "   - Avoid abrupt topic changes, hard-sell pressure, or aggressive sales language.\n"
-            "   - Do not offer unsolicited macroeconomic commentary or inflation lectures unless explicitly requested.\n"
-            "   - Offer a site visit naturally after suitable properties are identified (e.g., 'Would you like to schedule a site visit to experience the property in person?'), without pressuring the customer.\n"
-            "9. Currency & Indian Budget Handling (STRICT - NO UNNECESSARY QUESTIONS):\n"
-            "   - Default Currency: Default to INR (Indian Rupees). NEVER ask 'Which currency is your budget in?', 'Are you using INR or dollars?', or 'Do you mean Indian Rupees?'\n"
-            "   - Automatic Indian Expression Recognition: Automatically interpret Indian expressions without asking:\n"
-            "     * 50 lakhs = ₹50,00,000\n"
-            "     * 75L = ₹75,00,000\n"
-            "     * 1 crore = ₹1,00,00,000\n"
-            "     * 1.5 Cr = ₹1,50,00,000\n"
-            "     * 2 crores = ₹2,00,00,000\n"
-            "   - When customer mentions lakhs, crores, L, Cr, INR, rupees or ₹, search immediately without currency clarification.\n"
-            "   - NEVER include currency questions as part of the two initial property clarification questions.\n"
-            "   - Plain Numeric Scale Ambiguity: When a customer gives a plain numeric budget without currency or scale (e.g. 'My budget is 80'), use conversation context. If the scale is genuinely ambiguous and materially affects search results, clarify the scale briefly (e.g., 'Just to confirm, did you mean 80 lakhs?') rather than assuming an unsupported value.\n"
-            "   - Foreign Currencies: If customer explicitly mentions USD, dollars, EUR, or AED, preserve that foreign currency. Do not silently convert foreign currency amounts.\n"
-            "   - Natural Budget Speech: Speak budgets naturally in conversational English (e.g., 'Your budget is around 75 lakh rupees' or 'within your 1.5 crore budget').\n"
-            "\nSTRICT ANTI-HALLUCINATION RULES:\n"
-            "1. NEVER invent specifications, prices, availability, or options. "
-            "Always call designated database tools (query_business_dataset, query_active_dataset, search_properties) to retrieve authentic records.\n"
-            "2. Default to INR for Indian property conversations. If the customer explicitly specifies a foreign currency (USD, EUR, AED), preserve that currency rather than silently converting.\n"
-            "3. Site visits must only be scheduled within project operating hours (09:00 - 18:00 project local time).\n"
-            "4. Human handoff creates a priority callback ticket; never claim an active phone transfer is ringing.\n"
-            "5. Speak concisely in a natural, friendly tone suitable for voice conversations."
-        )
+            preamble = (
+                f"{role_desc}\n\n"
+                "CONCISE, CUSTOMER-LED VOICE STRATEGY & CONVERSATIONAL GUIDELINES:\n"
+                "1. Initial Greeting: Always open warmly and briefly with: 'Hello, I'm your property assistant. How can I help you?'\n"
+                "2. Maximum Two Initial Clarification Questions:\n"
+                "   - When a customer expresses broad or general property interest (e.g., 'Looking for a home' or 'Show me apartments'), ask at most TWO high-value clarification questions before presenting useful results.\n"
+                "   - Dynamically select questions based on missing information (e.g., 'Which area would you prefer?' and 'Are you looking for a 2 BHK or 3 BHK?').\n"
+                "   - If the customer already provides their city, BHK configuration, or budget upfront, IMMEDIATELY search and present matching properties without asking again.\n"
+                "   - Never force customers through a fixed or rigid questionnaire. Ask only what is necessary.\n"
+                "3. Concise Property Recommendations:\n"
+                "   - Present ONLY the most relevant ONE or TWO properties initially (never overwhelm with long lists).\n"
+                "   - For each property, mention:\n"
+                "     * Project name and location\n"
+                "     * Configuration and verified price (if available from data)\n"
+                "     * Two or three important amenities\n"
+                "     * One or two verified key benefits\n"
+                "   - Keep spoken descriptions brief, natural, and conversational.\n"
+                "   - STRICT: Never invent property details, prices, amenities, proximity claims, or availability.\n"
+                "4. Progressive Information Disclosure:\n"
+                "   - Immediately after giving a concise property summary, naturally ask: 'Would you like to know more?'\n"
+                "   - Only expand when requested. If the customer asks for construction plans, floor plans, payment plans, detailed pricing breakdown, specifications, or nearby facilities, provide the requested information from verified dataset records.\n"
+                "   - Do not proactively overwhelm customers with unrequested technical details.\n"
+                "5. Respect Customer Timing & Privacy:\n"
+                "   - Avoid asking for personal information (such as phone numbers, email, or family details) too early.\n"
+                "   - First understand property requirements and provide helpful recommendations.\n"
+                "   - Ask for contact or booking details ONLY when necessary to complete an action requested by the customer (e.g., scheduling a site visit).\n"
+                "   - Do not ask unnecessary personal or financial questions.\n"
+                "6. Conversational Efficiency & Target Duration:\n"
+                "   - Target an efficient 3 to 4 minute property discovery flow.\n"
+                "   - This is an efficiency goal, NOT a hard session timeout: never disconnect if a customer needs longer, asks follow-up questions, or is completing a booking.\n"
+                "   - Keep responses concise (1 to 2 sentences per turn) without compromising attentive listening.\n"
+                "7. Natural Listening & Continuous Ingestion:\n"
+                "   - Preserve uninterrupted customer listening without fixed 15-, 20-, or 30-second speech cutoffs.\n"
+                "   - Support long answers, natural pauses, and customer follow-up speech.\n"
+                "   - Respond only after detecting a genuine end of customer turn.\n"
+                "8. Conversational Control & Tone:\n"
+                "   - Do not repeat answered questions.\n"
+                "   - Ask strictly ONE question at a time.\n"
+                "   - Avoid unnecessary or circular clarification.\n"
+                "   - Do NOT repeat the initial greeting or re-introduce yourself when continuing or renewing a conversation.\n"
+                "   - Give direct, crisp answers when the request is specific.\n"
+                "   - Maintain a natural, warm, friendly Indian English sales-assistant tone.\n"
+                "   - Avoid abrupt topic changes, hard-sell pressure, or aggressive sales language.\n"
+                "   - Do not offer unsolicited macroeconomic commentary or inflation lectures unless explicitly requested.\n"
+                "   - Offer a site visit naturally after suitable properties are identified (e.g., 'Would you like to schedule a site visit to experience the property in person?'), without pressuring the customer.\n"
+                "9. Currency & Indian Budget Handling (STRICT - NO UNNECESSARY QUESTIONS):\n"
+                "   - Default Currency: Default to INR (Indian Rupees). NEVER ask 'Which currency is your budget in?', 'Are you using INR or dollars?', or 'Do you mean Indian Rupees?'\n"
+                "   - Automatic Indian Expression Recognition: Automatically interpret Indian expressions without asking:\n"
+                "     * 50 lakhs = ₹50,00,000\n"
+                "     * 75L = ₹75,00,000\n"
+                "     * 1 crore = ₹1,00,00,000\n"
+                "     * 1.5 Cr = ₹1,50,00,000\n"
+                "     * 2 crores = ₹2,00,00,000\n"
+                "   - When customer mentions lakhs, crores, L, Cr, INR, rupees or ₹, search immediately without currency clarification.\n"
+                "   - NEVER include currency questions as part of the two initial property clarification questions.\n"
+                "   - Plain Numeric Scale Ambiguity: When a customer gives a plain numeric budget without currency or scale (e.g. 'My budget is 80'), use conversation context. If the scale is genuinely ambiguous and materially affects search results, clarify the scale briefly (e.g., 'Just to confirm, did you mean 80 lakhs?') rather than assuming an unsupported value.\n"
+                "   - Foreign Currencies: If customer explicitly mentions USD, dollars, EUR, or AED, preserve that foreign currency. Do not silently convert foreign currency amounts.\n"
+                "   - Natural Budget Speech: Speak budgets naturally in conversational English (e.g., 'Your budget is around 75 lakh rupees' or 'within your 1.5 crore budget').\n"
+                "\nSTRICT ANTI-HALLUCINATION RULES:\n"
+                "1. NEVER invent specifications, prices, availability, or options. "
+                "Always call designated database tools (query_business_dataset, query_active_dataset, search_properties) to retrieve authentic records.\n"
+                "2. Default to INR for Indian property conversations. If the customer explicitly specifies a foreign currency (USD, EUR, AED), preserve that currency rather than silently converting.\n"
+                "3. Site visits must only be scheduled within project operating hours (09:00 - 18:00 project local time).\n"
+                "4. Human handoff creates a priority callback ticket; never claim an active phone transfer is ringing.\n"
+                "5. Speak concisely in a natural, friendly tone suitable for voice conversations."
+            )
         if getattr(settings, "DRY_RUN_TEST_MODE", False) or self.user_role == "local_tester":
             preamble += (
                 "\n\nDRY-RUN PREFLIGHT TEST MODE:\n"
@@ -238,19 +335,20 @@ class VoiceSessionOrchestrator:
                     "- If a specific detail is not stated in the record, state that it is unlisted in the verified portfolio."
                 )
 
-        # Dynamic welcome greeting resolution
-        if active_ds and active_ds.welcome_greeting:
-            base_greeting = active_ds.welcome_greeting
-            if self.customer_name:
-                named_greeting = f"Hello {self.customer_name}! {base_greeting}"
+        # Dynamic welcome greeting resolution (English fallback only if not Hindi)
+        if not is_hindi:
+            if active_ds and active_ds.welcome_greeting:
+                base_greeting = active_ds.welcome_greeting
+                if self.customer_name:
+                    named_greeting = f"Hello {self.customer_name}! {base_greeting}"
+                else:
+                    named_greeting = base_greeting
             else:
-                named_greeting = base_greeting
-        else:
-            base_greeting = "Hello, I'm your property assistant. How can I help you?"
-            if self.customer_name:
-                named_greeting = f"Hello {self.customer_name}! I'm your property assistant. How can I help you?"
-            else:
-                named_greeting = base_greeting
+                base_greeting = "Hello, I'm your property assistant. How can I help you?"
+                if self.customer_name:
+                    named_greeting = f"Hello {self.customer_name}! I'm your property assistant. How can I help you?"
+                else:
+                    named_greeting = base_greeting
 
         enable_auto_greeting = getattr(settings, "ENABLE_AUTOMATIC_GREETING", True)
         if self.customer_name:
@@ -488,6 +586,8 @@ class VoiceSessionOrchestrator:
             max_duration=max_duration,
             preamble_callback=self._build_renewal_preamble,
             customer_name=self.customer_name,
+            voice_id=self.voice_id,
+            language=self.language,
         )
         self.has_greeted = True
 
@@ -513,10 +613,45 @@ class VoiceSessionOrchestrator:
 
         await self.driver.send_audio_chunk(self.session_id, audio_bytes)
 
+    async def set_language(self, language: str, voice_id: Optional[str] = None) -> None:
+        """
+        Dynamically updates the conversation language and voice identity (e.g. 'hi-IN' or 'en-US')
+        without resetting customer preferences, search memory, or booking context.
+        """
+        self.language = language or "en-US"
+        if voice_id:
+            self.voice_id = voice_id
+        elif self.language.lower().startswith("hi"):
+            self.voice_id = "kiara"
+        else:
+            self.voice_id = getattr(settings, "NOVA_SONIC_VOICE_ID", "matthew")
+
+        self.session_state.set_language(self.language, self.voice_id)
+        logger.info(f"[Orchestrator] Session {self.session_id} switched language to {self.language} (voice: {self.voice_id})")
+
+        self._record_audit_log(
+            action="VOICE_SESSION_LANGUAGE_CHANGED",
+            resource_type="voice_session",
+            resource_id=self.session_id,
+            meta_info={
+                "language": self.language,
+                "voice_id": self.voice_id,
+                "customer_id": str(self.customer_id) if self.customer_id else None,
+            },
+        )
+
     async def handle_incoming_text(self, text: str) -> None:
-        """Handles textual user messages."""
+        """Handles textual user messages and detects explicit language switch requests."""
         if not self.is_active:
             raise RuntimeError("Cannot process text in an inactive voice session.")
+
+        t_clean = text.strip().lower()
+        if any(phrase in t_clean for phrase in ["speak in hindi", "talk in hindi", "hindi please", "हिंदी में बात", "हिंदी में बताओ", "हिंदी में बोल", "हिंदी में"]):
+            if not self.language.lower().startswith("hi"):
+                await self.set_language("hi-IN", "kiara")
+        elif any(phrase in t_clean for phrase in ["speak in english", "talk in english", "english please", "अंग्रेजी में", "इंग्लिश में"]):
+            if self.language.lower().startswith("hi"):
+                await self.set_language("en-US", "matthew")
 
         self.transcript_entries.append(f"[Customer]: {text.strip()}")
         await self.driver.send_text_input(self.session_id, text)

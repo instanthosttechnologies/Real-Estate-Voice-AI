@@ -84,6 +84,8 @@ class VoiceDriver(abc.ABC):
         max_duration: Optional[int] = None,
         preamble_callback: Optional[Callable[[], str]] = None,
         customer_name: Optional[str] = None,
+        voice_id: Optional[str] = None,
+        language: Optional[str] = None,
     ) -> None:
         """Initializes a bidirectional streaming session with the voice model."""
         pass

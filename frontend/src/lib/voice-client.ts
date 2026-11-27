@@ -25,6 +25,8 @@ export interface VoiceClientOptions {
   onSessionCompleted?: (message: string) => void;
   onTranscript?: (role: "user" | "assistant", delta: string, isFinal: boolean) => void;
   onSessionStarted?: (customerName?: string, sessionId?: string) => void;
+  language?: string;
+  voiceId?: string;
 }
 
 export class VoiceClient {
@@ -37,6 +39,8 @@ export class VoiceClient {
   private isConnected = false;
   private isMuted = false;
   private state: VoiceState = "idle";
+  private language: string = "en-US";
+  private voiceId?: string;
 
   private audioQueue: AudioBuffer[] = [];
   private activeSources: AudioBufferSourceNode[] = [];
@@ -76,6 +80,8 @@ export class VoiceClient {
     this.onSessionCompleted = options.onSessionCompleted;
     this.onTranscript = options.onTranscript;
     this.onSessionStarted = options.onSessionStarted;
+    if (options.language) this.language = options.language;
+    if (options.voiceId) this.voiceId = options.voiceId;
   }
 
   private setState(state: VoiceState) {
@@ -120,6 +126,20 @@ export class VoiceClient {
 
   public getLipSyncFrame(): LipSyncFrame {
     return this.lipSyncEngine.update();
+  }
+
+  public setLanguage(language: string, voiceId?: string): void {
+    this.language = language;
+    if (voiceId) this.voiceId = voiceId;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(
+        JSON.stringify({
+          type: "set_language",
+          language,
+          voice_id: voiceId,
+        })
+      );
+    }
   }
 
   public async start(): Promise<void> {
@@ -228,6 +248,8 @@ export class VoiceClient {
         JSON.stringify({
           type: "auth",
           token: this.accessToken,
+          language: this.language,
+          voice_id: this.voiceId,
         })
       );
     };

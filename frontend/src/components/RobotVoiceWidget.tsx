@@ -38,9 +38,17 @@ export function RobotVoiceWidget({ initialOpen = false }: RobotVoiceWidgetProps)
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [siteVisitBooking, setSiteVisitBooking] = useState<any | null>(null);
   const [hasMicPermission, setHasMicPermission] = useState<boolean | null>(null);
+  const [language, setLanguage] = useState<"en-US" | "hi-IN">("en-US");
 
   const voiceClientRef = useRef<VoiceClient | null>(null);
   const animFrameRef = useRef<number | null>(null);
+
+  const handleLanguageChange = useCallback((newLang: "en-US" | "hi-IN") => {
+    setLanguage(newLang);
+    if (voiceClientRef.current) {
+      voiceClientRef.current.setLanguage(newLang, newLang === "hi-IN" ? "kiara" : "matthew");
+    }
+  }, []);
 
   // Check microphone hardware availability without opening stream
   useEffect(() => {
@@ -100,6 +108,8 @@ export function RobotVoiceWidget({ initialOpen = false }: RobotVoiceWidgetProps)
     const client = new VoiceClient({
       sessionId,
       accessToken: validToken,
+      language: language,
+      voiceId: language === "hi-IN" ? "kiara" : "matthew",
       onStateChange: (state) => {
         setVoiceState(state);
         if (state === "connecting") {
@@ -180,6 +190,32 @@ export function RobotVoiceWidget({ initialOpen = false }: RobotVoiceWidgetProps)
   const cfg = ROBOT_STATE_CONFIGS[robotState] || ROBOT_STATE_CONFIGS.IDLE;
   const isSessionActive = voiceState !== "idle" && voiceState !== "error";
 
+  const localizedStatus = React.useMemo(() => {
+    if (language === "hi-IN") {
+      switch (robotState) {
+        case "LISTENING":
+          return "सुन रही हूँ...";
+        case "SPEAKING":
+          return "बोल रही हूँ...";
+        case "THINKING":
+          return "सोच रही हूँ...";
+        case "CONNECTING":
+          return "जुड़ रहा है...";
+        case "IDLE":
+          return "तैयार";
+        case "HAPPY":
+          return "सफलतापूर्वक पूर्ण";
+        case "ERROR":
+          return "त्रुटि";
+        case "DISCONNECTED":
+          return "सत्र समाप्त";
+        default:
+          return "तैयार";
+      }
+    }
+    return cfg.statusLabel;
+  }, [language, robotState, cfg.statusLabel]);
+
   return (
     <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 select-none">
       {/* ------------------------------------------------------------- */}
@@ -241,11 +277,41 @@ export function RobotVoiceWidget({ initialOpen = false }: RobotVoiceWidgetProps)
                 style={{ backgroundColor: cfg.primaryColor }}
               />
               <span className="text-xs font-extrabold uppercase tracking-wider text-slate-800">
-                {cfg.statusLabel}
+                {localizedStatus}
               </span>
             </div>
 
-            <div className="flex items-center space-x-1">
+            <div className="flex items-center space-x-2">
+              {/* Language Selector Pill */}
+              <div className="flex items-center bg-slate-200/80 p-0.5 rounded-full border border-slate-300/80 shadow-inner">
+                <button
+                  type="button"
+                  onClick={() => handleLanguageChange("en-US")}
+                  className={`px-2 py-0.5 text-[10px] font-bold rounded-full transition-all ${
+                    language === "en-US"
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                  aria-label="Switch to English"
+                  title="English"
+                >
+                  EN
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleLanguageChange("hi-IN")}
+                  className={`px-2 py-0.5 text-[10px] font-bold rounded-full transition-all ${
+                    language === "hi-IN"
+                      ? "bg-white text-slate-900 shadow-sm"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                  aria-label="हिंदी भाषा चुनें"
+                  title="हिंदी (Hindi)"
+                >
+                  हिंदी
+                </button>
+              </div>
+
               <button
                 type="button"
                 onClick={() => setIsOpen(false)}
@@ -378,7 +444,11 @@ export function RobotVoiceWidget({ initialOpen = false }: RobotVoiceWidgetProps)
                   className="w-full flex items-center justify-center space-x-2 py-3.5 px-4 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-2xl shadow-lg shadow-sky-600/25 transition-all transform active:scale-95 focus:outline-none focus:ring-4 focus:ring-sky-200"
                 >
                   <Mic className="w-5 h-5" />
-                  <span>{voiceState === "error" ? "Retry Voice Conversation" : "Start Voice Conversation"}</span>
+                  <span>
+                    {language === "hi-IN"
+                      ? (voiceState === "error" ? "पुनः प्रयास करें" : "बातचीत शुरू करें (हिंदी)")
+                      : (voiceState === "error" ? "Retry Voice Conversation" : "Start Voice Conversation")}
+                  </span>
                 </button>
               )
             ) : (
@@ -397,7 +467,7 @@ export function RobotVoiceWidget({ initialOpen = false }: RobotVoiceWidgetProps)
                   aria-label={isMuted ? "Unmute microphone" : "Mute microphone"}
                 >
                   {isMuted ? <MicOff className="w-4 h-4 text-amber-600" /> : <Mic className="w-4 h-4" />}
-                  <span>{isMuted ? "Unmute" : "Mute"}</span>
+                  <span>{language === "hi-IN" ? (isMuted ? "अनम्यूट" : "म्यूट") : (isMuted ? "Unmute" : "Mute")}</span>
                 </button>
 
                 {/* Speech Interruption Control */}
@@ -409,7 +479,7 @@ export function RobotVoiceWidget({ initialOpen = false }: RobotVoiceWidgetProps)
                   aria-label="Interrupt AI speaking"
                 >
                   <Radio className="w-4 h-4 text-sky-600" />
-                  <span>Interrupt</span>
+                  <span>{language === "hi-IN" ? "रोकें" : "Interrupt"}</span>
                 </button>
 
                 {/* End Conversation Button */}
@@ -421,7 +491,7 @@ export function RobotVoiceWidget({ initialOpen = false }: RobotVoiceWidgetProps)
                   aria-label="End conversation"
                 >
                   <PhoneOff className="w-4 h-4" />
-                  <span>End</span>
+                  <span>{language === "hi-IN" ? "समाप्त" : "End"}</span>
                 </button>
               </div>
             )}
