@@ -17,7 +17,7 @@ TOOL_DESCRIPTIONS: Dict[str, str] = {
     ),
     "search_properties": (
         "Search genuine database properties by city, location keyword, developer, project, property type, "
-        "BHK configuration, budget, ISO currency (e.g. USD, INR), carpet area, and amenities. "
+        "BHK configuration, budget (defaults to INR for Indian properties), carpet area, and amenities. "
         "Always returns verified database records. Never fabricates properties."
     ),
     "show_property_images": (
@@ -45,7 +45,7 @@ TOOL_DESCRIPTIONS: Dict[str, str] = {
         "Provides comparison of price, price per sqft, configuration, area, floor, facing, availability, and amenities."
     ),
     "extract_requirements": (
-        "Extract structured real estate preferences (city, BHK layout, budget range, ISO currency, amenities) "
+        "Extract structured real estate preferences (city, BHK layout, budget range defaulting to INR, amenities) "
         "from customer conversational speech."
     ),
     "create_lead": (

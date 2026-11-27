@@ -26,7 +26,7 @@ class SearchPropertiesToolInput(BaseModel):
     configuration_type: Optional[str] = Field(None, description="e.g. '1BHK', '2BHK', '3BHK', 'Studio', 'Penthouse'")
     min_budget: Optional[Decimal] = Field(None, ge=0, description="Minimum price in currency")
     max_budget: Optional[Decimal] = Field(None, ge=0, description="Maximum price in currency")
-    currency: Optional[str] = Field(None, description="ISO 4217 currency code e.g. USD, INR, EUR, AED, GBP. Never assumed.")
+    currency: Optional[str] = Field(None, description="ISO 4217 currency code. Defaults to INR for Indian property conversations if not explicitly specified as foreign currency.")
     min_carpet_area: Optional[Decimal] = Field(None, gt=0, description="Min carpet area in sqft")
     max_carpet_area: Optional[Decimal] = Field(None, gt=0, description="Max carpet area in sqft")
     required_amenities: Optional[List[str]] = Field(default_factory=list, description="Amenities required e.g. ['Gym', 'Swimming Pool']")

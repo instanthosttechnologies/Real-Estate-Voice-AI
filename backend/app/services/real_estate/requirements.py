@@ -12,7 +12,9 @@ class ExtractedCustomerRequirements(BaseModel):
     property_type: Optional[str] = None  # 'apartment', 'villa', 'commercial'
     budget_min: Optional[Decimal] = None
     budget_max: Optional[Decimal] = None
-    currency: Optional[str] = Field(None, description="ISO 4217 currency code e.g. USD, INR, EUR, AED, GBP")
+    currency: str = Field(default="INR", description="ISO 4217 currency code. Defaults to 'INR' for Indian real estate.")
+    is_budget_scale_ambiguous: bool = False
+    ambiguous_budget_value: Optional[int] = None
     desired_amenities: List[str] = Field(default_factory=list)
     purchase_timeline: Optional[str] = None  # 'immediate', '1_month', '1_3_months', 'exploring'
     is_complete: bool = False
@@ -23,7 +25,7 @@ class ExtractedCustomerRequirements(BaseModel):
 def parse_numeric_budget(text: str) -> Optional[Decimal]:
     """
     Parses currency amounts supporting both international (M, k, thousand, million)
-    and Indian numbering systems (Crore/Cr, Lakh/Lacs), with word-number support.
+    and Indian numbering systems (Crore/Cr, Lakh/Lacs/L), with word-number support.
     Guards against matching words like 'months'.
     """
     text = text.replace(",", "").strip().lower()
@@ -39,43 +41,84 @@ def parse_numeric_budget(text: str) -> Optional[Decimal]:
     for word, num in word_number_map.items():
         text = re.sub(rf"\b{word}\b", num, text)
 
-    # Indian Crore match: e.g. 1.5 cr, 2 crore, 3 crores
-    cr_match = re.search(r"\b(\d+(?:\.\d+)?)\s*(?:cr|crore|crores)\b", text)
+    # Indian Crore match: e.g. 1.5 cr, 2 crore, 3 crores, 2Cr, 1.5Cr
+    cr_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:cr|crore|crores)\b", text, re.IGNORECASE)
     if cr_match:
         return Decimal(cr_match.group(1)) * Decimal(10_000_000)
 
-    # Indian Lakh match: e.g. 75 lakh, 50 lakhs, 60 lac, 80 lacs, 80 lakhs
-    lakh_match = re.search(r"\b(\d+(?:\.\d+)?)\s*(?:lakh|lakhs|lac|lacs)\b", text)
+    # Indian Lakh match: e.g. 75 lakh, 50 lakhs, 60 lac, 80 lacs, 80 lakhs, 75L, 50L
+    lakh_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:lakh|lakhs|lac|lacs|l)\b", text, re.IGNORECASE)
     if lakh_match:
         return Decimal(lakh_match.group(1)) * Decimal(100_000)
 
     # Million match: e.g. 1.5m, 1.5 million (excluding 'month')
-    m_match = re.search(r"\b(\d+(?:\.\d+)?)\s*(?:m|mn|mil|million)\b(?!\s*month)", text)
+    m_match = re.search(r"\b(\d+(?:\.\d+)?)\s*(?:m|mn|mil|million)\b(?!\s*month)", text, re.IGNORECASE)
     if m_match:
         return Decimal(m_match.group(1)) * Decimal(1_000_000)
 
     # Thousand match: e.g. 750k, 500 thousand
-    k_match = re.search(r"\b(\d+(?:\.\d+)?)\s*(?:k|thousand)\b", text)
+    k_match = re.search(r"\b(\d+(?:\.\d+)?)\s*(?:k|thousand)\b", text, re.IGNORECASE)
     if k_match:
         return Decimal(k_match.group(1)) * Decimal(1_000)
 
-    # Raw numbers: e.g. $750000 or ₹750000 or 750000
-    num_match = re.search(r"[₹$€£]?\s*(\d{4,10})\b", text)
+    # Raw numbers: e.g. $750000 or ₹9000000 or 10000000
+    num_match = re.search(r"[₹$€£]?\s*(\d{4,12})\b", text)
     if num_match:
         return Decimal(num_match.group(1))
 
     return None
 
 
-def detect_currency_from_text(text: str, city: Optional[str] = None) -> Optional[str]:
+def check_ambiguous_budget_scale(text: str) -> Optional[int]:
+    """
+    Detects if the user provided a bare numeric budget without scale or currency
+    (e.g., 'My budget is 80', 'I have 75', 'around 80').
+    Such values are genuinely ambiguous in real estate (could mean 80 lakhs or 80k).
+    """
+    t = text.replace(",", "").strip().lower()
+    # If explicit scale or currency symbol exists, it is not ambiguous
+    if re.search(r"(?:cr|crore|crores|lakh|lakhs|lac|lacs|\bl\b|k|thousand|million|mn|m\b|\$|₹|inr|rs|rupee|dollar)", t, re.IGNORECASE):
+        return None
+    # Check for bare number in budget context: e.g. 'budget is 80', 'can spend 80', 'budget 80'
+    m = re.search(r"\b(?:budget\s+(?:is\s+|of\s+)?|spend\s+|around\s+|have\s+)?(\d{1,3})\b", t, re.IGNORECASE)
+    if m:
+        val = int(m.group(1))
+        if 10 <= val <= 999:
+            return val
+    return None
+
+
+def format_natural_spoken_budget(amount: Union[Decimal, float, int], currency: str = "INR") -> str:
+    """Formats numeric budget into natural conversational speech for real estate."""
+    if not amount:
+        return ""
+    val = float(amount)
+    curr = (currency or "INR").upper()
+    if curr == "INR":
+        if val >= 10_000_000:
+            cr = val / 10_000_000
+            cr_str = f"{cr:.2f}".rstrip("0").rstrip(".")
+            return f"{cr_str} crore"
+        elif val >= 100_000:
+            lakh = val / 100_000
+            lakh_str = f"{lakh:.2f}".rstrip("0").rstrip(".")
+            return f"{lakh_str} lakh rupees"
+        else:
+            return f"₹{val:,.0f}"
+    elif curr == "USD":
+        return f"${val:,.0f}"
+    else:
+        return f"{val:,.0f} {curr}"
+
+
+def detect_currency_from_text(text: str, city: Optional[str] = None) -> str:
     """
     Detects ISO 4217 currency code from text tokens, symbols, and denomination units.
-    Never assumes USD or silently converts currencies.
+    Defaults to INR for Indian real estate conversations unless a foreign currency
+    (USD, EUR, GBP, AED, CAD, AUD) is explicitly specified.
     """
     t = text.lower()
-    # Explicit symbols and denominations
-    if any(s in t for s in ["₹", "inr", "rupee", "rupees", "rs.", "rs "]) or re.search(r"\b(?:cr|crore|crores|lakh|lakhs|lac|lacs)\b", t):
-        return "INR"
+    # Explicit foreign symbols and terms
     if "$" in t or re.search(r"\b(?:usd|dollar|dollars|bucks)\b", t):
         return "USD"
     if "€" in t or re.search(r"\b(?:eur|euro|euros)\b", t):
@@ -89,19 +132,18 @@ def detect_currency_from_text(text: str, city: Optional[str] = None) -> Optional
     if re.search(r"\b(?:aud)\b", t):
         return "AUD"
 
-    # Infer from well-known city geography if no explicit currency stated
+    # Infer from foreign city geography if explicitly stated
     if city:
         city_lower = city.strip().lower()
         if city_lower in ["seattle", "austin", "miami", "denver", "chicago", "san francisco", "dallas", "boston", "phoenix", "new york"]:
             return "USD"
-        if city_lower in ["mumbai", "bangalore", "bengaluru", "delhi", "hyderabad", "pune", "chennai", "kolkata", "noida", "gurgaon", "gurugram"]:
-            return "INR"
         if city_lower in ["london"]:
             return "GBP"
         if city_lower in ["dubai"]:
             return "AED"
 
-    return None
+    # Default to INR for all Indian real estate conversations
+    return "INR"
 
 
 def extract_requirements_from_text(
@@ -168,10 +210,10 @@ def extract_requirements_from_text(
         req.purchase_timeline = "exploring"
 
     # 5. Budget extraction
-    # Specific numeric range e.g. "between 600k and 800k", "500k to 700k"
     range_match = re.search(
-        r"(?:between|from)?\s*(\$?\s*\d+(?:\.\d+)?\s*(?:k|m|million|thousand)?)\s*(?:to|-|and)\s*(\$?\s*\d+(?:\.\d+)?\s*(?:k|m|million|thousand)?)\b",
-        text
+        r"(?:between|from)?\s*([₹$€£]?\s*\d+(?:\.\d+)?\s*(?:cr|crore|crores|lakh|lakhs|lac|lacs|l|k|m|million|thousand)?)\s*(?:to|-|and)\s*([₹$€£]?\s*\d+(?:\.\d+)?\s*(?:cr|crore|crores|lakh|lakhs|lac|lacs|l|k|m|million|thousand)?)\b",
+        text,
+        re.IGNORECASE
     )
     range_found = False
     if range_match:
@@ -190,6 +232,15 @@ def extract_requirements_from_text(
                 req.budget_min = budget_val
             else:
                 req.budget_max = budget_val
+            req.is_budget_scale_ambiguous = False
+            req.ambiguous_budget_value = None
+        else:
+            # Check if customer gave a bare number without currency or scale (e.g. 'My budget is 80')
+            ambig = check_ambiguous_budget_scale(text)
+            if ambig is not None:
+                req.is_budget_scale_ambiguous = True
+                req.ambiguous_budget_value = ambig
+                req.clarification_prompt = f"Just to confirm, did you mean {ambig} lakhs?"
 
     # 6. Cities / Locations (Common real estate hubs - Global & Indian)
     city_found = False
@@ -260,21 +311,21 @@ def extract_requirements_from_text(
             if canon not in req.desired_amenities:
                 req.desired_amenities.append(canon)
 
-    # 9. Check completeness & identify missing critical fields
+    # 9. Check completeness & identify missing critical fields (Never require currency clarification for Indian real estate)
     missing: List[str] = []
     if not req.preferred_city and not req.preferred_location:
         missing.append("location")
     if not req.configuration_type:
         missing.append("configuration (e.g. 2BHK, 3BHK)")
-    if not req.budget_max:
+    if not req.budget_max and not req.is_budget_scale_ambiguous:
         missing.append("budget")
-    elif not req.currency:
-        missing.append("currency (e.g. USD, INR, EUR)")
 
     req.missing_fields = missing
     req.is_complete = len(missing) == 0
 
-    if missing:
+    if req.is_budget_scale_ambiguous and req.clarification_prompt:
+        pass
+    elif missing:
         req.clarification_prompt = (
             f"To help find the best options, could you please specify your preferred {', '.join(missing)}?"
         )

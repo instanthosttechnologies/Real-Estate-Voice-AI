@@ -408,7 +408,7 @@ class MockVoiceDriver(VoiceDriver):
             elif "3bhk" in t or "3 bhk" in t:
                 config = "3BHK"
 
-            currency = "INR" if any(w in t for w in ["crore", "cr", "lakh", "rs", "inr"]) else "USD"
+            currency = "USD" if any(w in t for w in ["dollar", "usd", "$"]) else "INR"
 
             await queue.put(
                 VoiceServerEvent(
