@@ -292,9 +292,14 @@ class AmazonNovaSonicDriver(VoiceDriver):
                     return
 
             # 4. If automatic greeting is enabled, trigger Nova Sonic greeting via INIT_USER turn
-            if getattr(settings, "ENABLE_AUTOMATIC_GREETING", False):
+            enable_auto_greet = getattr(settings, "ENABLE_AUTOMATIC_GREETING", True)
+            if enable_auto_greet:
                 init_user_content_name = f"init_user_{uuid.uuid4().hex[:8]}"
-                init_text = f"Hello! I am {customer_name.strip()}." if customer_name else "Hello!"
+                is_hindi = language and str(language).lower().startswith("hi")
+                if is_hindi:
+                    init_text = f"नमस्ते! मैं {customer_name.strip()} हूँ। बातचीत शुरू करें।" if customer_name else "नमस्ते! बातचीत शुरू करें।"
+                else:
+                    init_text = f"Hello! I am {customer_name.strip()}." if customer_name else "Hello!"
                 await _send_init_event(
                     BedrockNovaSonicSerializer.serialize_text_content_start(
                         prompt_name=prompt_name,
@@ -341,6 +346,23 @@ class AmazonNovaSonicDriver(VoiceDriver):
                 "contentStart(AUDIO_USER)",
                 0.1,
             )
+
+            # Send brief silence frames to establish keepalive bridge so Bedrock begins synthesizing greeting
+            if enable_auto_greet and connection and not is_mock_transport:
+                silent_frame = b"\x00" * 3200  # 100ms of 16kHz 16-bit PCM
+                for _ in range(5):
+                    if session_id not in self._active_sessions:
+                        break
+                    try:
+                        audio_evt = BedrockNovaSonicSerializer.serialize_audio_input(
+                            prompt_name=prompt_name,
+                            content_name=audio_content_name,
+                            audio_bytes=silent_frame,
+                        )
+                        await connection.send_event(audio_evt)
+                        await asyncio.sleep(0.08)
+                    except Exception:
+                        break
 
         except asyncio.TimeoutError as exc:
             logger.error(f"Bedrock duplex stream initialization timed out for session {session_id}")

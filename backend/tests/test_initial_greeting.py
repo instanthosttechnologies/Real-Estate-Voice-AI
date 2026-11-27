@@ -158,49 +158,52 @@ async def test_nova_sonic_event_sequence_greeting_enabled():
     tools = get_agent_tools_spec()
     customer_name = "Sarah"
 
+    orig_greet = settings.ENABLE_AUTOMATIC_GREETING
     settings.ENABLE_AUTOMATIC_GREETING = True
+    try:
+        await driver.start_session(
+            session_id=session_id,
+            prompt_preamble="System instructions",
+            tools=tools,
+            customer_name=customer_name,
+        )
 
-    await driver.start_session(
-        session_id=session_id,
-        prompt_preamble="System instructions",
-        tools=tools,
-        customer_name=customer_name,
-    )
+        event_names = [list(e["event"].keys())[0] for e in sent_events]
+        assert event_names == [
+            "sessionStart",
+            "promptStart",
+            "contentStart",  # SYSTEM
+            "textInput",     # SYSTEM
+            "contentEnd",    # SYSTEM
+            "contentStart",  # INIT_USER
+            "textInput",     # INIT_USER
+            "contentEnd",    # INIT_USER
+            "contentStart",  # AUDIO_USER
+        ]
 
-    event_names = [list(e["event"].keys())[0] for e in sent_events]
-    assert event_names == [
-        "sessionStart",
-        "promptStart",
-        "contentStart",  # SYSTEM
-        "textInput",     # SYSTEM
-        "contentEnd",    # SYSTEM
-        "contentStart",  # INIT_USER
-        "textInput",     # INIT_USER
-        "contentEnd",    # INIT_USER
-        "contentStart",  # AUDIO_USER
-    ]
+        # Validate INIT_USER block properties
+        init_start = sent_events[5]["event"]["contentStart"]
+        assert init_start["type"] == "TEXT"
+        assert init_start["role"] == "USER"
+        assert init_start["interactive"] is True
 
-    # Validate INIT_USER block properties
-    init_start = sent_events[5]["event"]["contentStart"]
-    assert init_start["type"] == "TEXT"
-    assert init_start["role"] == "USER"
-    assert init_start["interactive"] is True
+        init_text = sent_events[6]["event"]["textInput"]
+        assert "Sarah" in init_text["content"]
 
-    init_text = sent_events[6]["event"]["textInput"]
-    assert "Sarah" in init_text["content"]
+        # Validate AUDIO_USER block properties
+        audio_start = sent_events[8]["event"]["contentStart"]
+        assert audio_start["type"] == "AUDIO"
+        assert audio_start["role"] == "USER"
+        assert audio_start["interactive"] is True
 
-    # Validate AUDIO_USER block properties
-    audio_start = sent_events[8]["event"]["contentStart"]
-    assert audio_start["type"] == "AUDIO"
-    assert audio_start["role"] == "USER"
-    assert audio_start["interactive"] is True
+        # Validate strict event protocol ordering
+        validator = NovaSonicEventValidator(strict_sequencing=True)
+        for evt in sent_events:
+            validator.validate_event(evt)
 
-    # Validate strict event protocol ordering
-    validator = NovaSonicEventValidator(strict_sequencing=True)
-    for evt in sent_events:
-        validator.validate_event(evt)
-
-    await driver.end_session(session_id)
+        await driver.end_session(session_id)
+    finally:
+        settings.ENABLE_AUTOMATIC_GREETING = orig_greet
 
 
 @pytest.mark.asyncio
@@ -230,31 +233,34 @@ async def test_nova_sonic_event_sequence_greeting_disabled():
     session_id = f"test_mic_first_{uuid.uuid4().hex[:8]}"
     tools = get_agent_tools_spec()
 
+    orig_greet = settings.ENABLE_AUTOMATIC_GREETING
     settings.ENABLE_AUTOMATIC_GREETING = False
+    try:
+        await driver.start_session(
+            session_id=session_id,
+            prompt_preamble="System instructions",
+            tools=tools,
+            customer_name="Sarah",
+        )
 
-    await driver.start_session(
-        session_id=session_id,
-        prompt_preamble="System instructions",
-        tools=tools,
-        customer_name="Sarah",
-    )
+        event_names = [list(e["event"].keys())[0] for e in sent_events]
+        assert event_names == [
+            "sessionStart",
+            "promptStart",
+            "contentStart",  # SYSTEM
+            "textInput",     # SYSTEM
+            "contentEnd",    # SYSTEM
+            "contentStart",  # AUDIO_USER
+        ]
 
-    event_names = [list(e["event"].keys())[0] for e in sent_events]
-    assert event_names == [
-        "sessionStart",
-        "promptStart",
-        "contentStart",  # SYSTEM
-        "textInput",     # SYSTEM
-        "contentEnd",    # SYSTEM
-        "contentStart",  # AUDIO_USER
-    ]
+        # Validate strict event protocol ordering
+        validator = NovaSonicEventValidator(strict_sequencing=True)
+        for evt in sent_events:
+            validator.validate_event(evt)
 
-    # Validate strict event protocol ordering
-    validator = NovaSonicEventValidator(strict_sequencing=True)
-    for evt in sent_events:
-        validator.validate_event(evt)
-
-    await driver.end_session(session_id)
+        await driver.end_session(session_id)
+    finally:
+        settings.ENABLE_AUTOMATIC_GREETING = orig_greet
 
 
 @pytest.mark.asyncio
